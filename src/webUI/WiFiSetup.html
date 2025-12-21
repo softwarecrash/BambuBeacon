@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>BambuBeacon – Network Setup</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <canvas id="particleCanvas"></canvas>
+
+  <div id="container">
+    <div id="header">
+      <a href="/"><img id="logo" src="/bmsc.svg" alt="Logo" /></a>
+      <h1>BambuBeacon – Network Setup</h1>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Available Networks</div>
+      <div id="networks" class="network-list">Loading...</div>
+    </div>
+
+    <form id="wifiForm" class="panel">
+      <div class="panel-title">Wi-Fi Configuration</div>
+
+      <label for="devicename">Device Name</label>
+      <input type="text" id="devicename" autocomplete="off" required />
+
+      <label for="ssid0">SSID</label>
+      <input type="text" id="ssid0" autocomplete="off" />
+      <input type="hidden" id="bssid0" />
+
+      <label for="password0">Password</label>
+      <input type="password" id="password0" autocomplete="new-password" />
+
+      <div class="detailSplitter">Fallback</div>
+
+      <label for="ssid1">Fallback SSID (optional)</label>
+      <input type="text" id="ssid1" autocomplete="off" />
+      <input type="hidden" id="bssid1" />
+
+      <label for="password1">Password (optional)</label>
+      <input type="password" id="password1" autocomplete="new-password" />
+
+      <div class="detailSplitter">Static IP (optional)</div>
+
+      <label for="ip">Static IP</label>
+      <input type="text" id="ip" placeholder="192.168.1.123" />
+
+      <label for="subnet">Subnet Mask</label>
+      <input type="text" id="subnet" placeholder="255.255.255.0" />
+
+      <label for="gateway">Gateway</label>
+      <input type="text" id="gateway" placeholder="192.168.1.1" />
+
+      <label for="dns">DNS Server</label>
+      <input type="text" id="dns" placeholder="8.8.8.8" />
+
+      <div class="detailSplitter">WebUI Security (optional)</div>
+
+      <label for="webUser">Username</label>
+      <input type="text" id="webUser" autocomplete="username" />
+
+      <label for="webPass">Password</label>
+      <input type="password" id="webPass" autocomplete="new-password" />
+
+      <div class="button-stack actions">
+        <button type="submit" class="btn">Save</button>
+        <button type="button" class="btn btn-outline" onclick="location.href='/'">Back</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="toast"><span id="toast-icon">ℹ️</span><span id="toast-msg">Placeholder</span></div>
+
+  <script src="/backgroundCanvas.js"></script>
+  <script>
+    function getSignalSVG(rssi) {
+      let level = 0;
+      if (rssi >= -50) level = 4;
+      else if (rssi >= -60) level = 3;
+      else if (rssi >= -70) level = 2;
+      else level = 1;
+
+      const bar = (x, y, h, active) =>
+        `<rect x="${x}" y="${y}" width="3" height="${h}" fill="currentColor" ${active ? "" : 'opacity="0.25"'} />`;
+
+      return `<svg width="18" height="16" viewBox="0 0 20 16" aria-hidden="true">
+        ${bar(0, 12, 4, level >= 1)}
+        ${bar(5, 8, 8, level >= 2)}
+        ${bar(10, 4, 12, level >= 3)}
+        ${bar(15, 0, 16, level >= 4)}
+      </svg>`;
+    }
+
+    function getSignalPercent(rssi) {
+      const percent = Math.max(0, Math.min(100, 2 * (rssi + 100)));
+      return `${percent}%`;
+    }
+    function getLockIcon(enc) { return enc ? "🔒" : "🔓"; }
+
+    function alertToast(type, message) {
+      const toast = document.getElementById("toast");
+      const icon = document.getElementById("toast-icon");
+      const msg  = document.getElementById("toast-msg");
+
+      let iconChar = "ℹ️";
+      let borderColor = "rgba(255,255,255,0.18)";
+      const css = getComputedStyle(document.documentElement);
+
+      switch (String(type).toLowerCase()) {
+        case "success": iconChar="✅"; borderColor = css.getPropertyValue("--bb-primary"); break;
+        case "error":   iconChar="❌"; borderColor = css.getPropertyValue("--bb-warning"); break;
+        case "warning": iconChar="⚠️"; borderColor = css.getPropertyValue("--bb-highlight"); break;
+        default:        iconChar="ℹ️";
+      }
+
+      toast.style.borderLeftColor = (borderColor || "").trim() || "#00E5FF";
+      icon.textContent = iconChar;
+      msg.textContent = message;
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 3000);
+    }
+
+    async function loadNetworks() {
+      const container = document.getElementById("networks");
+      try {
+        container.textContent = "Loading...";
+        const res = await fetch("/netlist");
+        const data = await res.json();
+        container.innerHTML = "";
+
+        if (!data.networks || !data.networks.length) {
+          container.innerHTML = '<div class="network empty">No networks found</div>';
+          return;
+        }
+
+        data.networks.forEach(net => {
+          const bssid = net.bssid || "";
+          const row = document.createElement("button");
+          row.type = "button";
+          row.className = "network";
+          row.innerHTML = `
+            <span class="signal-wrap">${getSignalSVG(net.rssi)}</span>
+            <span class="ssid">${net.ssid || "(hidden)"}</span>
+            <span class="meta">${getSignalPercent(net.rssi)} · ${bssid} · ${getLockIcon(net.enc)}</span>
+          `;
+          row.addEventListener("click", () => {
+            document.getElementById("ssid0").value = net.ssid || "";
+            document.getElementById("bssid0").value = bssid;
+          });
+          container.appendChild(row);
+        });
+      } catch (err) {
+        container.innerHTML = '<div class="network empty">Failed to load networks</div>';
+        console.error(err);
+        alertToast("error", "Failed getting network scan.");
+      }
+    }
+
+    async function loadConfig() {
+      try {
+        const res = await fetch("/netconf.json");
+        const c = await res.json();
+
+        document.getElementById("devicename").value = c.deviceName || "BambuBeacon";
+        document.getElementById("ssid0").value = c.ssid0 || "";
+        document.getElementById("password0").value = c.pass0 || "";
+        document.getElementById("bssid0").value = c.bssid0 || "";
+
+        document.getElementById("ssid1").value = c.ssid1 || "";
+        document.getElementById("password1").value = c.pass1 || "";
+        document.getElementById("bssid1").value = c.bssid1 || "";
+
+        document.getElementById("ip").value = c.ip || "";
+        document.getElementById("subnet").value = c.subnet || "";
+        document.getElementById("gateway").value = c.gateway || "";
+        document.getElementById("dns").value = c.dns || "";
+
+        document.getElementById("webUser").value = c.webUser || "";
+        document.getElementById("webPass").value = c.webPass || "";
+      } catch {}
+    }
+
+    document.getElementById("wifiForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        const body =
+          `devicename=${encodeURIComponent(document.getElementById("devicename").value)}` +
+          `&ssid0=${encodeURIComponent(document.getElementById("ssid0").value)}` +
+          `&password0=${encodeURIComponent(document.getElementById("password0").value)}` +
+          `&bssid0=${encodeURIComponent(document.getElementById("bssid0").value)}` +
+          `&ssid1=${encodeURIComponent(document.getElementById("ssid1").value)}` +
+          `&password1=${encodeURIComponent(document.getElementById("password1").value)}` +
+          `&bssid1=${encodeURIComponent(document.getElementById("bssid1").value)}` +
+          `&ip=${encodeURIComponent(document.getElementById("ip").value)}` +
+          `&subnet=${encodeURIComponent(document.getElementById("subnet").value)}` +
+          `&gateway=${encodeURIComponent(document.getElementById("gateway").value)}` +
+          `&dns=${encodeURIComponent(document.getElementById("dns").value)}` +
+          `&webUser=${encodeURIComponent(document.getElementById("webUser").value)}` +
+          `&webPass=${encodeURIComponent(document.getElementById("webPass").value)}`;
+
+        const res = await fetch("/submitConfig", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body
+        });
+
+        if (res.ok) alertToast("success", "Settings saved. Restarting…");
+        else alertToast("error", "Save failed: " + res.status);
+      } catch {
+        alertToast("info", "Device is likely restarting.");
+      }
+    });
+
+    loadConfig();
+    loadNetworks();
+  </script>
+</body>
+</html>

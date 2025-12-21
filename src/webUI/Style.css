@@ -1,0 +1,183 @@
+:root{
+  --bb-bg:#05070A;
+  --bb-text:#EAF2F7;
+  --bb-text-2:#9AA8B3;
+
+  --bb-primary:#00E5FF;
+  --bb-secondary:#00B8D4;
+  --bb-highlight:#9DFF57;
+  --bb-warning:#FF4B4B;
+
+  --surface-1:rgba(255,255,255,.04);
+  --surface-2:rgba(255,255,255,.06);
+  --surface-3:rgba(255,255,255,.09);
+  --border:rgba(255,255,255,.10);
+  --border-strong:rgba(255,255,255,.22);
+
+  --radius:14px;
+  --field-bg:rgba(255,255,255,.10);
+  --field-bg-focus:rgba(255,255,255,.14);
+}
+
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  background:var(--bb-bg);
+  color:var(--bb-text);
+  padding:15px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+}
+
+#particleCanvas{
+  position:fixed;inset:0;width:100vw;height:100vh;
+  z-index:-1;background:var(--bb-bg);
+}
+
+#container{max-width:520px;width:100%;z-index:1;padding:12px}
+
+#header{
+  display:flex;align-items:center;justify-content:center;gap:10px;
+  margin:8px 0 14px;
+}
+
+#logo{
+  width:28px;height:28px;display:block;opacity:.92;
+  filter:drop-shadow(0 0 10px rgba(0,229,255,.10));
+}
+
+h1{
+  margin:0;
+  color:var(--bb-text);
+  text-align:center;
+  font-size:1.5rem;
+  font-weight:800;
+  letter-spacing:.02em;
+}
+
+.panel{
+  background:rgba(255,255,255,.22);
+  border:1px solid rgba(255,255,255,.20);
+  border-radius:var(--radius);
+  backdrop-filter:blur(5px);
+  padding:14px;
+  margin-bottom:14px;
+}
+
+.panel-title{
+  font-weight:700;
+  color:var(--bb-text-2);
+  margin-bottom:10px;
+}
+
+.detailSplitter{
+  margin:14px 0 8px;
+  padding-top:12px;
+  border-top:1px solid rgba(255,255,255,.14);
+  color:var(--bb-text-2);
+  font-weight:700;
+}
+
+label{display:block;font-weight:650;margin:10px 0 6px;color:var(--bb-text)}
+
+input[type="text"],input[type="password"],select{
+  width:100%;
+  padding:10px 12px;
+  border:1px solid var(--border-strong);
+  border-radius:var(--radius);
+  background:var(--field-bg);
+  color:var(--bb-text);
+}
+
+input[type="text"]:focus,input[type="password"]:focus,select:focus{
+  outline:none;
+  border-color:var(--bb-primary);
+  background:var(--field-bg-focus);
+}
+
+.button-stack{display:flex;flex-direction:column;gap:10px}
+.actions{margin-top:10px}
+
+button,.btn{
+  appearance:none;border:none;border-radius:var(--radius);
+  width:100%;
+  padding:12px 14px;
+  font-size:16px;
+  font-weight:750;
+  background-color:var(--bb-primary);
+  color:#071015;
+  cursor:pointer;
+}
+
+button:hover,.btn:hover{background-color:#6CF3FF}
+button:active,.btn:active{opacity:.95;transform:translateY(1px)}
+
+.btn-outline{
+  background:transparent;
+  color:var(--bb-primary);
+  border:2px solid var(--bb-primary);
+}
+.btn-outline:hover{background:rgba(0,229,255,.10)}
+button:disabled,.btn:disabled{opacity:.55;cursor:not-allowed}
+
+.network-list{display:flex;flex-direction:column;gap:8px}
+
+.network{
+  width:100%;
+  text-align:left;
+  border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.08);
+  color:var(--bb-text);
+  border-radius:12px;
+  padding:10px;
+  display:grid;
+  grid-template-columns:22px 1fr;
+  grid-template-rows:auto auto;
+  column-gap:10px;
+  row-gap:2px;
+}
+
+.network:hover{
+  border-color:rgba(0,229,255,.25);
+  background:rgba(0,229,255,.06);
+}
+
+.signal-wrap{
+  grid-row:1 / span 2;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:var(--bb-primary);
+  opacity:.95;
+}
+
+.ssid{font-weight:800;letter-spacing:.01em}
+.meta{font-size:12px;color:var(--bb-text-2)}
+.network.empty{padding:12px;text-align:center;color:var(--bb-text-2)}
+
+#toast{
+  position:fixed;
+  bottom:18px;
+  left:50%;
+  transform:translateX(-50%);
+  max-width:520px;
+  width:calc(100% - 30px);
+  background:rgba(10,14,18,.75);
+  border:1px solid rgba(255,255,255,.18);
+  border-left:6px solid var(--surface-3);
+  color:var(--bb-text);
+  border-radius:14px;
+  padding:10px 12px;
+  display:flex;
+  gap:10px;
+  align-items:center;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .2s ease;
+  backdrop-filter:blur(8px);
+}
+#toast.show{opacity:1;pointer-events:auto}
+#toast-icon{width:22px;text-align:center}
+#toast-msg{font-weight:650}

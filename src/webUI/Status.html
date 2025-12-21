@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>BambuBeacon</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <canvas id="particleCanvas"></canvas>
+
+  <div id="container">
+    <div id="header">
+      <a href="/"><img id="logo" src="/bmsc.svg" alt="Logo" /></a>
+      <h1>BambuBeacon</h1>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Device</div>
+      <div id="deviceInfo" style="color: var(--bb-text-2); font-weight: 650;">Loading…</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Setup</div>
+      <div class="button-stack">
+        <button class="btn" onclick="location.href='/wifisetup'">Wi-Fi / Network</button>
+        <button class="btn btn-outline" disabled>Printer Setup (coming soon)</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"><span id="toast-icon">ℹ️</span><span id="toast-msg">Placeholder</span></div>
+
+  <script src="/backgroundCanvas.js"></script>
+  <script>
+    async function loadInfo() {
+      try {
+        const r = await fetch("/info.json");
+        const j = await r.json();
+        const el = document.getElementById("deviceInfo");
+        el.innerHTML =
+          `Name: <b>${j.deviceName || "BambuBeacon"}</b><br>` +
+          `Mode: <b>${j.mode || "?"}</b><br>` +
+          `IP: <b>${j.ip || "?"}</b><br>` +
+          `RSSI: <b>${(j.rssi != null ? j.rssi : "?")}</b>`;
+      } catch {
+        document.getElementById("deviceInfo").textContent = "Failed to load device info.";
+      }
+    }
+    loadInfo();
+  </script>
+</body>
+</html>
