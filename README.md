@@ -10,5 +10,3 @@ Parts you need:
 - USB power supply 2A
 - Some printed Parts
 - BambuLab printer (make less sense without one)
-
-this project is a light bar beacon for bambu printers
