@@ -13,4 +13,3 @@ Parts you need:
 
 ## Featueres ##
 - Follow Printer ip on DHCP Networks
-- One Click OTA Update
