@@ -1,4 +1,4 @@
-#include "webSerial.h"
+#include "WebSerial.h"
 
 // Single definition of the global instance
 WebSerialClass webSerial;
