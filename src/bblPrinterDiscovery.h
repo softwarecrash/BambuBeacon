@@ -1,17 +1,28 @@
 #ifndef _BBLPRINTERDISCOVERY_H
 #define _BBLPRINTERDISCOVERY_H
 
+#include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiUdp.h>
+
 #include "WebSerial.h"
 #include "SettingsPrefs.h"
+
+// Use the project's global instances (do not redeclare them elsewhere)
 extern WebSerialClass webSerial;
 extern Settings settings;
 
+#ifndef BBL_SSDP_PORT
 #define BBL_SSDP_PORT 2021
+#endif
+
+#ifndef BBL_SSDP_MCAST_IP
 #define BBL_SSDP_MCAST_IP IPAddress(239, 255, 255, 250)
-#define BBL_DISCOVERY_INTERVAL 10000UL
+#endif
+
+#ifndef BBL_MAX_PRINTERS
 #define BBL_MAX_PRINTERS 10
+#endif
 
 struct BBLPrinter
 {
@@ -19,157 +30,75 @@ struct BBLPrinter
   char usn[64];
 };
 
-static WiFiUDP bblUdp;
-static bool bblUdpInitialized = false;
-static unsigned long bblLastDiscovery = 0;
-
-static BBLPrinter bblLastKnownPrinters[BBL_MAX_PRINTERS];
-static int bblKnownPrinterCount = 0;
-
-bool bblIsPrinterKnown(IPAddress ip, int *index = nullptr)
+class BBLPrinterDiscovery
 {
-  for (int i = 0; i < bblKnownPrinterCount; i++)
+public:
+  BBLPrinterDiscovery();
+
+  void begin();
+  void end();
+
+  // Call this from loop()
+  void update();
+
+  // Force a new scan soon (e.g. on MQTT failure / printer offline)
+  void forceRescan(unsigned long minDelayMs = 0);
+
+  // How often to run a scan in normal operation
+  void setInterval(unsigned long intervalMs);
+
+  // How long to listen for responses per scan
+  void setListenWindow(unsigned long listenWindowMs);
+
+  // Access last known printers
+  int knownCount() const;
+  const BBLPrinter* knownPrinters() const;
+
+private:
+  enum class State : uint8_t
   {
-    if (bblLastKnownPrinters[i].ip == ip)
-    {
-      if (index)
-        *index = i;
-      return true;
-    }
-  }
-  return false;
-}
+    IDLE,
+    SEND_1,
+    SEND_2,
+    LISTEN
+  };
 
-void bblPrintKnownPrinters()
-{
-  webSerial.println("[BBLScan] Known printers:");
-  if (bblKnownPrinterCount == 0)
-  {
-    webSerial.println("  (none)");
-  }
-  for (int i = 0; i < bblKnownPrinterCount; i++)
-  {
-    webSerial.printf("  [%d] IP: %s", i + 1, bblLastKnownPrinters[i].ip.toString().c_str());
-    if (strlen(bblLastKnownPrinters[i].usn) > 0)
-    {
-      webSerial.printf("  [USN: %s]", bblLastKnownPrinters[i].usn);
-    }
-    webSerial.println();
-  }
-}
+  void ensureUdp();
+  void sendMSearch();
+  void readPacketsNonBlocking(unsigned long now);
+  void drainPacket(int size);
 
-void bblSearchPrinters()
-{
-  unsigned long now = millis();
-  if (now - bblLastDiscovery < BBL_DISCOVERY_INTERVAL)
-    return;
-  bblLastDiscovery = now;
+  bool isKnown(IPAddress ip, int* index = nullptr);
+  bool hasSeenThisSession(IPAddress ip);
+  void markSeenThisSession(IPAddress ip);
 
-  if (!bblUdpInitialized)
-  {
-    bblUdp.beginMulticast(BBL_SSDP_MCAST_IP, BBL_SSDP_PORT);
-    bblUdpInitialized = true;
-  }
+private:
+  // Config
+  unsigned long intervalMs_     = 10000UL; // default 10s
+  unsigned long listenWindowMs_ = 5000UL;  // default 5s
+  unsigned long sendGapMs_      = 250UL;   // gap between m-search packets
 
-  String msearch =
-      "M-SEARCH * HTTP/1.1\r\n"
-      "HOST: 239.255.255.250:2021\r\n"
-      "MAN: \"ssdp:discover\"\r\n"
-      "MX: 5\r\n"
-      "ST: urn:bambulab-com:device:3dprinter:1\r\n\r\n";
+  // Runtime
+  bool enabled_     = false;
+  bool udpReady_    = false;
+  bool forceRescan_ = false;
 
-  for (int i = 0; i < 2; i++)
-  {
-    bblUdp.beginPacket(BBL_SSDP_MCAST_IP, BBL_SSDP_PORT);
-    bblUdp.print(msearch);
-    bblUdp.endPacket();
-    delay(250);
-  }
+  State state_ = State::IDLE;
 
-    webSerial.println("[BBLScan] Searching for printers...");
+  unsigned long nextRunMs_     = 0;
+  unsigned long sendAtMs_      = 0;
+  unsigned long listenUntilMs_ = 0;
 
+  WiFiUDP udp_;
 
-  unsigned long start = millis();
-  int sessionFound = 0;
-  IPAddress seenIPs[BBL_MAX_PRINTERS];
-  int seenCount = 0;
+  // Session / known printers
+  BBLPrinter knownPrinters_[BBL_MAX_PRINTERS];
+  int knownCount_ = 0;
 
-  while (millis() - start < 5000)
-  {
-    int size = bblUdp.parsePacket();
-    if (size)
-    {
-      IPAddress senderIP = bblUdp.remoteIP();
+  IPAddress seenIPs_[BBL_MAX_PRINTERS];
+  int seenCount_ = 0;
 
-      bool alreadySeen = false;
-      for (int i = 0; i < seenCount; i++)
-      {
-        if (seenIPs[i] == senderIP)
-        {
-          alreadySeen = true;
-          break;
-        }
-      }
-      if (alreadySeen)
-        continue;
-      if (seenCount < BBL_MAX_PRINTERS)
-        seenIPs[seenCount++] = senderIP;
-
-      char buffer[512];
-      int len = bblUdp.read(buffer, sizeof(buffer) - 1);
-      buffer[len] = 0;
-
-      String response(buffer);
-      String usnStr = "";
-      int usnPos = response.indexOf("USN:");
-      if (usnPos >= 0)
-      {
-        int end = response.indexOf("\r\n", usnPos);
-        usnStr = response.substring(usnPos + 4, end);
-        usnStr.trim();
-      }
-
-      // IP update check for stored USN
-      if (strlen(settings.get.printerUSN()) > 0 && usnStr.length() > 0 &&
-          strcmp(settings.get.printerUSN(), usnStr.c_str()) == 0)
-      {
-        String currentIP = senderIP.toString();
-        if (String(settings.get.printerIP()) != currentIP)
-        {
-          webSerial.printf("[BBLScan] Detected matching USN with updated IP (%s → %s). Saving...\n", settings.get.printerIP(), currentIP.c_str());
-          settings.set.printerIP(currentIP.c_str());
-          settings.save();
-        }
-      }
-
-      int existingIndex = -1;
-      bool isNewPrinter = !bblIsPrinterKnown(senderIP, &existingIndex);
-
-      if (isNewPrinter)
-      {
-        webSerial.printf("[BBLScan]  [%d] IP: %s", ++sessionFound, senderIP.toString().c_str());
-        if (usnStr.length())
-        {
-          webSerial.printf("  [USN: %s]", usnStr.c_str());
-        }
-        webSerial.println();
-      }
-
-      if (isNewPrinter && bblKnownPrinterCount < BBL_MAX_PRINTERS)
-      {
-        BBLPrinter &printer = bblLastKnownPrinters[bblKnownPrinterCount++];
-        printer.ip = senderIP;
-        strncpy(printer.usn, usnStr.c_str(), sizeof(printer.usn) - 1);
-        printer.usn[sizeof(printer.usn) - 1] = 0;
-      }
-    }
-    delay(10);
-  }
-
-/*   if (printerConfig.debuging)
-  {
-    bblPrintKnownPrinters();
-  } */
-}
+  int sessionFound_ = 0;
+};
 
 #endif
