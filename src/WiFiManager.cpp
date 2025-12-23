@@ -23,11 +23,12 @@ bool WiFiManager::connectSTA() {
 
   // Optional static IP
   IPAddress ip, sn, gw, dnsip;
-  bool useStatic = ip.fromString(settings.get.staticIP()) && ip != IPAddress(0,0,0,0);
+  const bool ipOk = ip.fromString(settings.get.staticIP()) && ip != IPAddress(0,0,0,0);
+  const bool snOk = sn.fromString(settings.get.staticSN()) && sn != IPAddress(0,0,0,0);
+  const bool gwOk = gw.fromString(settings.get.staticGW()) && gw != IPAddress(0,0,0,0);
+  const bool dnsOk = dnsip.fromString(settings.get.staticDNS()) && dnsip != IPAddress(0,0,0,0);
+  const bool useStatic = ipOk && snOk && gwOk && dnsOk;
   if (useStatic) {
-    sn.fromString(settings.get.staticSN());
-    gw.fromString(settings.get.staticGW());
-    dnsip.fromString(settings.get.staticDNS());
     WiFi.config(ip, gw, sn, dnsip);
   }
 
