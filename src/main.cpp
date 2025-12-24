@@ -80,6 +80,7 @@ void loop() {
   }
   ledsCtrl.setThermalState(heating, cooling);
   ledsCtrl.setPaused(paused);
-  ledsCtrl.setFinished(finished);
+  const bool showFinish = finished && (!bambu.bedValid() || bambu.bedTemp() > 45.0f);
+  ledsCtrl.setFinished(showFinish);
   ledsCtrl.loop();
 }
