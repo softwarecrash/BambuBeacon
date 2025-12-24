@@ -58,7 +58,8 @@ void loop() {
 
   const String& gstate = bambu.gcodeState();
   const bool finished = (gstate == "FINISH" || gstate == "FINISHED" || gstate == "DONE");
-  const bool printing = (gstate == "RUNNING" || gstate == "PRINTING" || gstate == "PAUSED" || gstate == "PREPARE");
+  const bool paused = (gstate == "PAUSE" || gstate == "PAUSED");
+  const bool printing = (gstate == "RUNNING" || gstate == "PRINTING" || paused || gstate == "PREPARE");
 
   uint8_t dl = bambu.downloadProgress();
   ledsCtrl.setDownloadProgress((dl <= 100 && dl < 100) ? dl : 255);
@@ -78,5 +79,6 @@ void loop() {
     heating = heating || (!finished && (bambu.nozzleTarget() > (bambu.nozzleTemp() + 2.0f)));
   }
   ledsCtrl.setThermalState(heating, cooling);
+  ledsCtrl.setPaused(paused);
   ledsCtrl.loop();
 }

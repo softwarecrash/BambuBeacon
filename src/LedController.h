@@ -22,6 +22,7 @@ public:
   void setPrintProgress(uint8_t percent);
   void setDownloadProgress(uint8_t percent);
   void setThermalState(bool heating, bool cooling);
+  void setPaused(bool paused);
 
   void startSelfTest();
 
@@ -58,6 +59,7 @@ private:
     uint8_t  downloadProgress = 255; // 0-100, 255 = unknown/off
     bool     heating = false;
     bool     cooling = false;
+    bool     paused = false;
   };
 
   // --- Boot selftest (ampel, segmentweise fill-up) ---

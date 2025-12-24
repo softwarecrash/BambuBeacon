@@ -137,6 +137,13 @@ void LedController::setThermalState(bool heating, bool cooling) {
   }
 }
 
+void LedController::setPaused(bool paused) {
+  if (_st.paused != paused) {
+    _st.paused = paused;
+    markDirty();
+  }
+}
+
 void LedController::startSelfTest() {
   startBootTest(millis());
 }
@@ -253,7 +260,9 @@ void LedController::render(uint32_t nowMs) {
   // LED plan (English, keep synced with behavior):
   // - Ring 0 (top): Green steady when OK/working. Error/Fatal = two red LEDs opposite, rotating (beacon).
   // - Ring 1 (middle): Heating = orange-red sawtooth pulse. Cooling after finish = dark blue inverted sawtooth
-  //   until bed < 45C. Warning = amber pulse if not heating/cooling.
+  //   until bed < 45C. Paused = steady amber. Warning = amber pulse if not heating/cooling/paused.
+  //   When printing and no warnings/heating/cooling/paused,
+  //   show green ring with one dim LED "gap" rotating slowly (soft fade).
   // - Ring 2 (bottom): Download progress = blue fill, Print progress = green fill, WiFi reconnect = purple blink.
   // Colorblind-friendly: avoid steady green + steady yellow on the same ring; warnings use pulse, errors use motion.
 
@@ -282,12 +291,34 @@ void LedController::render(uint32_t nowMs) {
       CRGB c = CRGB(255, 80, 0);
       c.nscale8_video(scale8(level, 200));
       setSegmentColor(1, c, false);
+    } else if (_st.paused) {
+      setSegmentColor(1, CRGB(255, 150, 0), false);
     } else if (_st.hmsSev == 2) {
       uint8_t pulse = sin8((nowMs / 10) & 0xFF);
       uint8_t level = scale8(pulse, 200) + 30;
       CRGB c = CRGB(255, 150, 0);
       c.nscale8_video(level);
       setSegmentColor(1, c, false);
+    } else if (_st.printProgress <= 100) {
+      setSegmentColor(1, CRGB::Green, false);
+      if (_perSeg > 0) {
+        const uint32_t pos16 = ((uint32_t)nowMs * 256UL / 360UL) % ((uint32_t)_perSeg * 256UL);
+        const uint16_t idx = (uint16_t)(pos16 >> 8);
+        const uint8_t frac = (uint8_t)(pos16 & 0xFF);
+        const uint16_t base = segStart(1);
+        const uint16_t next = (idx + 1) % _perSeg;
+
+        const uint8_t dimIdx = scale8(255, (uint8_t)(255 - frac));
+        const uint8_t dimNext = scale8(255, frac);
+
+        CRGB c0 = CRGB::Green;
+        c0.nscale8_video(255 - dimIdx);
+        _leds[base + idx] = c0;
+
+        CRGB c1 = CRGB::Green;
+        c1.nscale8_video(255 - dimNext);
+        _leds[base + next] = c1;
+      }
     }
   }
 
