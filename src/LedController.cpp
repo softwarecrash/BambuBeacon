@@ -144,6 +144,13 @@ void LedController::setPaused(bool paused) {
   }
 }
 
+void LedController::setFinished(bool finished) {
+  if (_st.finished != finished) {
+    _st.finished = finished;
+    markDirty();
+  }
+}
+
 void LedController::startSelfTest() {
   startBootTest(millis());
 }
@@ -259,6 +266,7 @@ void LedController::render(uint32_t nowMs) {
 
   // LED plan (English, keep synced with behavior):
   // - Ring 0 (top): Green steady when OK/working. Error/Fatal = two red LEDs opposite, rotating (beacon).
+  //   Finish = bright 3-LED "comet" that makes a slow lap, then pauses (colorblind-safe).
   // - Ring 1 (middle): Heating = orange-red sawtooth pulse. Cooling after finish = dark blue inverted sawtooth
   //   until bed < 45C. Paused = steady amber. Warning = amber pulse if not heating/cooling/paused.
   //   When printing and no warnings/heating/cooling/paused,
@@ -273,6 +281,23 @@ void LedController::render(uint32_t nowMs) {
       const uint16_t base = segStart(0);
       if (base + pos < _count) _leds[base + pos] = CRGB::Red;
       if (base + opp < _count) _leds[base + opp] = CRGB::Red;
+    }
+  } else if (_st.finished) {
+    if (_segments >= 1 && _perSeg >= 1) {
+      const uint16_t base = segStart(0);
+      const uint32_t lapMs = (uint32_t)_perSeg * 240UL;
+      const uint32_t pauseMs = 1200UL;
+      const uint32_t phase = (nowMs % (lapMs + pauseMs));
+      if (phase < lapMs) {
+        const uint16_t pos = phase / 240UL;
+        for (uint8_t i = 0; i < 3; i++) {
+          const uint16_t idx = (pos + _perSeg - i) % _perSeg;
+          uint8_t scale = (i == 0) ? 255 : (i == 1 ? 140 : 60);
+          CRGB c = CRGB::Green;
+          c.nscale8_video(scale);
+          _leds[base + idx] = c;
+        }
+      }
     }
   } else {
     if (_segments >= 1) setSegmentColor(0, CRGB::Green, false);

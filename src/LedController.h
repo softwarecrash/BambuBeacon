@@ -23,6 +23,7 @@ public:
   void setDownloadProgress(uint8_t percent);
   void setThermalState(bool heating, bool cooling);
   void setPaused(bool paused);
+  void setFinished(bool finished);
 
   void startSelfTest();
 
@@ -60,6 +61,7 @@ private:
     bool     heating = false;
     bool     cooling = false;
     bool     paused = false;
+    bool     finished = false;
   };
 
   // --- Boot selftest (ampel, segmentweise fill-up) ---

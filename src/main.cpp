@@ -80,5 +80,6 @@ void loop() {
   }
   ledsCtrl.setThermalState(heating, cooling);
   ledsCtrl.setPaused(paused);
+  ledsCtrl.setFinished(finished);
   ledsCtrl.loop();
 }
