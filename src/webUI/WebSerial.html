@@ -27,6 +27,14 @@
                         </path>
                     </svg>
                 </button>
+                <button class="rounded shadow" onclick="terminalCopyAll()">
+                    <svg viewBox="64 64 896 896" focusable="false" data-icon="copy" width="1em" height="1em"
+                        fill="currentColor" aria-hidden="true">
+                        <path
+                            d="M832 64H296c-17.7 0-32 14.3-32 32v160h-72c-17.7 0-32 14.3-32 32v640c0 17.7 14.3 32 32 32h536c17.7 0 32-14.3 32-32v-160h72c17.7 0 32-14.3 32-32V96c0-17.7-14.3-32-32-32zm-104 824H224V320h504v568zm104-200h-72V288c0-17.7-14.3-32-32-32H328V128h504v560z">
+                        </path>
+                    </svg>
+                </button>
                 <button class="rounded shadow" onclick="enableFlowLock=!enableFlowLock">
                     <svg viewBox="64 64 896 896" focusable="false" data-icon="lock" width="1em" height="1em"
                         fill="currentColor" aria-hidden="true">
@@ -125,6 +133,29 @@
     function terminalClean() {
         textArea.value = "";
         textArea.scrollTop = textArea.scrollHeight;
+    }
+
+    function terminalCopyAll() {
+        let value = textArea.value;
+        if (!value) {
+            return;
+        }
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(value).catch(() => { });
+            return;
+        }
+        let helper = document.createElement("textarea");
+        helper.value = value;
+        helper.style.position = "fixed";
+        helper.style.top = "-1000px";
+        helper.style.left = "-1000px";
+        document.body.appendChild(helper);
+        helper.focus();
+        helper.select();
+        try {
+            document.execCommand("copy");
+        } catch (e) { }
+        document.body.removeChild(helper);
     }
 
     setInterval(() => {
