@@ -23,7 +23,7 @@ private:
   static const unsigned long kConnectTimeoutMs = 8000UL;
   static const unsigned long kFastFailNoApMs = 2500UL;
   static const unsigned long kRetryIntervalMs = 15000UL;
-  static const unsigned long kApRetryIntervalMs = 60000UL;
+  static const unsigned long kApRetryIntervalMs = 300000UL;
   static const uint8_t kMaxTriesBeforeAp = 4;
 
   void startConnectAttempt();

@@ -97,6 +97,7 @@ void WiFiManager::startAP() {
 
   // IMPORTANT: AP+STA mode enables stable WiFi scanning while AP is active
   WiFi.mode(WIFI_AP_STA);
+  WiFi.setSleep(false);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255,255,255,0));
 
   String apName = String("BambuBeacon-") + String((uint32_t)ESP.getEfuseMac(), HEX);
@@ -157,6 +158,9 @@ void WiFiManager::loop() {
   }
 
   const unsigned long now = millis();
+  if (_apMode && _lastFailNoAp && (now - _lastTry) < kApRetryIntervalMs) {
+    return;
+  }
   if (_connectPhase != ConnectPhase::IDLE) {
     AttemptResult res = processConnectAttempt();
     if (res == AttemptResult::Connected) {

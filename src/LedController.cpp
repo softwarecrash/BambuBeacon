@@ -393,7 +393,17 @@ void LedController::render(uint32_t nowMs) {
       }
     }
   } else {
-    if (_segments >= 1) setSegmentColor(0, CRGB::Green, false);
+    if (_segments >= 1) {
+      if (st.paused) {
+        uint8_t pulse = sin8((nowMs / 10) & 0xFF);
+        uint8_t level = scale8(pulse, 200) + 30;
+        CRGB c = CRGB::Green;
+        c.nscale8_video(level);
+        setSegmentColor(0, c, false);
+      } else {
+        setSegmentColor(0, CRGB::Green, false);
+      }
+    }
   }
 
     if (_segments >= 2) {
