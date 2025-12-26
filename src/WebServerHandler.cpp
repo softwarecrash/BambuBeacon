@@ -231,7 +231,21 @@ void WebServerHandler::handleSubmitPrinterConfig(AsyncWebServerRequest* req) {
     settings.set.LEDperSeg((uint16_t)v);
   }
 
+  if (req->hasParam("ledmaxcurrent", true)) {
+    long v = getP("ledmaxcurrent").toInt();
+    if (v < 100) v = 100;
+    if (v > 5000) v = 5000;
+    settings.set.LEDMaxCurrentmA((uint16_t)v);
+  }
+
+  if (req->hasParam("ledreverse", true)) {
+    const String v = getP("ledreverse");
+    const bool enabled = (v == "1" || v == "true" || v == "on");
+    settings.set.LEDReverseOrder(enabled);
+  }
+
   settings.save();
+  ledsCtrl.applySettingsFrom(settings);
 
   bambu.reloadFromSettings();
   if (WiFi.status() == WL_CONNECTED) bambu.connect();
@@ -514,6 +528,8 @@ void WebServerHandler::begin() {
     doc["printerAC"] = settings.get.printerAC();
     doc["ledSegments"] = settings.get.LEDSegments();
     doc["ledPerSeg"] = settings.get.LEDperSeg();
+    doc["ledMaxCurrentmA"] = settings.get.LEDMaxCurrentmA();
+    doc["ledReverseOrder"] = settings.get.LEDReverseOrder();
 
     String out;
     serializeJson(doc, out);

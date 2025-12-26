@@ -38,6 +38,15 @@
       <label for="ledperseg">LEDs per Ring</label>
       <input type="number" id="ledperseg" min="1" max="64" step="1" required />
 
+      <label for="ledmaxcurrent">Max LED Current (mA)</label>
+      <input type="number" id="ledmaxcurrent" min="100" max="5000" step="50" required />
+
+      <label for="ledreverse">LED Order</label>
+      <select id="ledreverse" required>
+        <option value="0">Top → Middle → Bottom</option>
+        <option value="1">Bottom → Middle → Top</option>
+      </select>
+
       <div class="button-stack actions">
         <button type="submit" class="btn" id="savePrinterBtn" disabled>Save</button>
         <button type="button" class="btn btn-outline" onclick="location.href='/'">Back</button>
@@ -98,20 +107,26 @@
       const acEl = document.getElementById("printerac");
       const segEl = document.getElementById("ledsegments");
       const perEl = document.getElementById("ledperseg");
+      const maxEl = document.getElementById("ledmaxcurrent");
+      const revEl = document.getElementById("ledreverse");
 
       const ip = ipEl.value.trim();
       const usn = usnEl.value.trim();
       const ac = acEl.value.trim();
       const seg = parseInt(segEl.value, 10);
       const per = parseInt(perEl.value, 10);
+      const maxmA = parseInt(maxEl.value, 10);
+      const rev = parseInt(revEl.value, 10);
 
       ipEl.classList.toggle("invalid", !ip);
       usnEl.classList.toggle("invalid", !usn);
       acEl.classList.toggle("invalid", !ac);
       segEl.classList.toggle("invalid", !(seg === 2 || seg === 3));
       perEl.classList.toggle("invalid", !(Number.isInteger(per) && per >= 1 && per <= 64));
+      maxEl.classList.toggle("invalid", !(Number.isInteger(maxmA) && maxmA >= 100 && maxmA <= 5000));
+      revEl.classList.toggle("invalid", !(rev === 0 || rev === 1));
 
-      document.getElementById("savePrinterBtn").disabled = !(ip && usn && ac && (seg === 2 || seg === 3) && (Number.isInteger(per) && per >= 1 && per <= 64));
+      document.getElementById("savePrinterBtn").disabled = !(ip && usn && ac && (seg === 2 || seg === 3) && (Number.isInteger(per) && per >= 1 && per <= 64) && (Number.isInteger(maxmA) && maxmA >= 100 && maxmA <= 5000) && (rev === 0 || rev === 1));
     }
 
     function renderPrinters(printers) {
@@ -179,6 +194,8 @@
         document.getElementById("printerac").value = c.printerAC || "";
         document.getElementById("ledsegments").value = String(c.ledSegments || 3);
         document.getElementById("ledperseg").value = String(c.ledPerSeg || 12);
+        document.getElementById("ledmaxcurrent").value = String(c.ledMaxCurrentmA || 500);
+        document.getElementById("ledreverse").value = (c.ledReverseOrder ? "1" : "0");
       } catch {}
       updateSaveState();
     }
@@ -191,7 +208,9 @@
           `&printerusn=${encodeURIComponent(document.getElementById("printerusn").value)}` +
           `&printerac=${encodeURIComponent(document.getElementById("printerac").value)}` +
           `&ledsegments=${encodeURIComponent(document.getElementById("ledsegments").value)}` +
-          `&ledperseg=${encodeURIComponent(document.getElementById("ledperseg").value)}`;
+          `&ledperseg=${encodeURIComponent(document.getElementById("ledperseg").value)}` +
+          `&ledmaxcurrent=${encodeURIComponent(document.getElementById("ledmaxcurrent").value)}` +
+          `&ledreverse=${encodeURIComponent(document.getElementById("ledreverse").value)}`;
 
         const res = await fetch("/submitPrinterConfig", {
           method: "POST",
@@ -211,7 +230,7 @@
     document.getElementById("modal-backdrop").addEventListener("click", (e) => {
       if (e.target.id === "modal-backdrop") closeModal();
     });
-    ["printerip", "printerusn", "printerac", "ledsegments", "ledperseg"].forEach(id => {
+    ["printerip", "printerusn", "printerac", "ledsegments", "ledperseg", "ledmaxcurrent", "ledreverse"].forEach(id => {
       document.getElementById(id).addEventListener("input", updateSaveState);
     });
 

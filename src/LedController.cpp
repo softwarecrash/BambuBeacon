@@ -22,6 +22,8 @@ LedController::LedController()
   _segments(0),
   _count(0),
   _brightness(0),
+  _maxCurrentmA(0),
+  _reverseOrder(false),
   _dirty(false),
   _lastTickMs(0),
   _bootTestActive(false),
@@ -57,6 +59,8 @@ bool LedController::begin(Settings& settings) {
   _perSeg     = settings.get.LEDperSeg();
   _segments   = (uint8_t)settings.get.LEDSegments();
   _brightness = (uint8_t)settings.get.LEDBrightness();
+  _maxCurrentmA = settings.get.LEDMaxCurrentmA();
+  _reverseOrder = settings.get.LEDReverseOrder();
 
   if (_perSeg == 0 || _segments == 0) return false;
   if (!alloc((uint16_t)_perSeg * _segments)) return false;
@@ -67,6 +71,7 @@ bool LedController::begin(Settings& settings) {
 
   FastLED.addLeds<WS2812B, LED_PIN, GRB>(_leds, _count);
   FastLED.setBrightness(_brightness);
+  FastLED.setMaxPowerInVoltsAndMilliamps(5, _maxCurrentmA);
 
   clear(true);
 
@@ -84,6 +89,16 @@ void LedController::applySettingsFrom(Settings& settings) {
   if (newBright != _brightness) {
     _brightness = newBright;
     FastLED.setBrightness(_brightness);
+    markDirty();
+  }
+  uint16_t newMax = settings.get.LEDMaxCurrentmA();
+  if (newMax != _maxCurrentmA) {
+    _maxCurrentmA = newMax;
+    FastLED.setMaxPowerInVoltsAndMilliamps(5, _maxCurrentmA);
+  }
+  bool newReverse = settings.get.LEDReverseOrder();
+  if (newReverse != _reverseOrder) {
+    _reverseOrder = newReverse;
     markDirty();
   }
 }

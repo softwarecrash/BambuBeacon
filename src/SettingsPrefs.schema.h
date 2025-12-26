@@ -33,4 +33,6 @@
   X(UINT16, "device",   "LEDperSeg",          LEDperSeg,        12,          1,     64) \
   X(UINT16, "device",   "LEDSegments",        LEDSegments,      3,           2,     3) \
   X(UINT16, "device",   "LEDBrightness",      LEDBrightness,    50,         0,     255) \
+  X(UINT16, "device",   "LEDMaxCurrentmA",    LEDMaxCurrentmA,  500,       100,    5000) \
+  X(BOOL,   "device",   "LEDReverseOrder",    LEDReverseOrder,  false,       0,     0) \
   /* End of settings items */

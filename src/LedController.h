@@ -84,7 +84,8 @@ private:
   bool alloc(uint16_t count);
   void freeBuf();
 
-  inline uint16_t segStart(uint8_t seg) const { return (uint16_t)seg * _perSeg; }
+  inline uint8_t mapSeg(uint8_t seg) const { return _reverseOrder ? (_segments - 1 - seg) : seg; }
+  inline uint16_t segStart(uint8_t seg) const { return (uint16_t)mapSeg(seg) * _perSeg; }
   inline uint16_t segEnd(uint8_t seg)   const { return segStart(seg) + _perSeg; }
 
   void markDirty() { _dirty = true; }
@@ -100,6 +101,8 @@ private:
   uint8_t  _segments;
   uint16_t _count;
   uint8_t  _brightness;
+  uint16_t _maxCurrentmA;
+  bool     _reverseOrder;
 
   bool     _dirty;
   uint32_t _lastTickMs;
