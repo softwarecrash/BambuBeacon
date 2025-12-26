@@ -30,6 +30,7 @@ BambuBeacon is an ESP32-based status light for BambuLab printers. It connects to
 - Share ground between the ESP32 and the LED rings
 - Power the LED rings from a stable 5V supply (2A or more recommended)
 - Optional but recommended: place a small resistor (~330-470 Ohm) in series with the data line
+- For LED test go to <BambuBeacon-IP>/ledtest
 
 ## Quick Start ##
 1. Build and flash the firmware with PlatformIO.
