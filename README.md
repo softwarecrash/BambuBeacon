@@ -2,7 +2,21 @@
 
 ..... still under construction .....
 
-Parts you need:
+## Project Description ##
+BambuBeacon is an ESP32-based status light for BambuLab printers. It connects to your printer, listens for status updates, and drives multi-ring WS2812 LEDs to visualize printer state, progress, and connectivity in real time. The project includes a built-in web UI for setup, Wi-Fi configuration, and device management.
+
+## Features ##
+- Web-based setup for printer IP/USN/access key and device settings
+- Wi-Fi AP mode for first-time configuration and recovery
+- Real-time status visualization across 2 or 3 LED rings
+- Adjustable LED brightness, per-ring LED counts, and max LED current limit
+- Configurable ring order (top-to-bottom or bottom-to-top from the controller)
+- DHCP-friendly printer discovery and tracking
+- WebSerial console for live logs and troubleshooting
+- JSON backup/restore of configuration
+- OTA Firmware Updates
+
+## Parts you need ##
 - 3x 12bit WS2812 LED Ring
 - 1x Wemos D1 Mini ESP32 or Athom Slim Wled controller or ESP32-C3 Nano
 - Soldering Iron
@@ -20,7 +34,7 @@ Parts you need:
 ## Quick Start ##
 1. Build and flash the firmware with PlatformIO.
 2. Power the device and connect to its Wi-Fi AP.
-3. Open the setup page and configure Wi-Fi, then reboot into STA mode.
+3. Open the setup page (http://192.168.4.1) and configure Wi-Fi, then reboot into STA mode.
 4. Open Printer Setup and enter printer IP/USN/access key.
 5. Set LED ring count (2 or 3), LEDs per ring (1-64), max LED current limit, and ring order, then save.
 6. Verify status updates on the LED rings and check logs via WebSerial if needed.
@@ -43,16 +57,3 @@ Color legend:
 - Red: error/fatal
 - Blue: cooling/download
 - Purple: Wi-Fi reconnect
-
-## Project Description ##
-BambuBeacon is an ESP32-based status light for BambuLab printers. It connects to your printer, listens for status updates, and drives multi-ring WS2812 LEDs to visualize printer state, progress, and connectivity in real time. The project includes a built-in web UI for setup, Wi-Fi configuration, and device management.
-
-## Features ##
-- Web-based setup for printer IP/USN/access key and device settings
-- Wi-Fi AP mode for first-time configuration and recovery
-- Real-time status visualization across 2 or 3 LED rings
-- Adjustable LED brightness, per-ring LED counts, and max LED current limit
-- Configurable ring order (top-to-bottom or bottom-to-top from the controller)
-- DHCP-friendly printer discovery and tracking
-- WebSerial console for live logs and troubleshooting
-- JSON backup/restore of configuration
