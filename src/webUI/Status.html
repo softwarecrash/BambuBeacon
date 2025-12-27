@@ -18,7 +18,7 @@
     <div class="panel">
       <div class="panel-title">LED Brightness</div>
       <div class="slider-row">
-        <input type="range" id="ledBrightness" min="0" max="255" step="1" />
+        <input type="range" id="ledBrightness" min="0" max="100" step="1" />
         <div class="slider-value" id="ledBrightnessValue">--</div>
       </div>
     </div>
@@ -68,22 +68,34 @@
       ledValue.textContent = String(v);
     }
 
+    function percentToRaw(p) {
+      const clamped = Math.max(0, Math.min(100, p));
+      return Math.round((clamped / 100) * 255);
+    }
+
+    function rawToPercent(raw) {
+      const clamped = Math.max(0, Math.min(255, raw));
+      return Math.round((clamped / 255) * 100);
+    }
+
     async function loadLedBrightness() {
       try {
         const res = await fetch("/ledconf.json", { cache: "no-store" });
         if (!res.ok) throw new Error("Failed");
         const j = await res.json();
-        const b = (j.ledBrightness != null) ? Number(j.ledBrightness) : 0;
-        ledSlider.value = b;
-        renderLedValue(b);
-        lastSentBrightness = b;
+        const raw = (j.ledBrightness != null) ? Number(j.ledBrightness) : 0;
+        const p = rawToPercent(raw);
+        ledSlider.value = p;
+        renderLedValue(p);
+        lastSentBrightness = raw;
       } catch {
         renderLedValue("?");
       }
     }
 
     async function saveLedBrightness(value) {
-      const body = `brightness=${encodeURIComponent(value)}`;
+      const raw = percentToRaw(value);
+      const body = `brightness=${encodeURIComponent(raw)}`;
       const res = await fetch("/setLedBrightness", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -95,10 +107,11 @@
     function queueSaveBrightness(value) {
       if (ledSaveTimer) clearTimeout(ledSaveTimer);
       ledSaveTimer = setTimeout(async () => {
-        if (value === lastSentBrightness) return;
+        const raw = percentToRaw(value);
+        if (raw === lastSentBrightness) return;
         try {
           await saveLedBrightness(value);
-          lastSentBrightness = value;
+          lastSentBrightness = raw;
         } catch {}
       }, 120);
     }
