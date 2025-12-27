@@ -22,7 +22,7 @@ BambuBeacon is an ESP32-based status light for BambuLab printers. It connects to
 - Soldering Iron
 - some wires
 - USB power supply >= 500mA
-- Some printed Parts
+- [Some printed Parts](https://makerworld.com/de/models/2163021-bambubeacon)
 - BambuLab printer (make less sense without one)
 
 ## Wiring Notes ##
