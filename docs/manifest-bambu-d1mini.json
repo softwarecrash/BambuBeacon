@@ -1,0 +1,15 @@
+﻿{
+  "name": "BambuBeacon",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32",
+      "parts": [
+        {
+          "path": "firmware/BambuBeacon_wemos_d1_mini32_DBG_V0.0.1.bin",
+          "offset": 0
+        }
+      ]
+    }
+  ]
+}

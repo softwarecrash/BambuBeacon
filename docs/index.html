@@ -1,0 +1,70 @@
+﻿<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>BambuBeacon Flash</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <script type="module" src="https://unpkg.com/esp-web-tools@9/dist/web/install-button.js?module"></script>
+  </head>
+  <body>
+    <div class="bg">
+      <div class="blob blob-a"></div>
+      <div class="blob blob-b"></div>
+      <div class="grid"></div>
+    </div>
+    <main class="container">
+      <header class="hero">
+        <span class="badge">BambuBeacon</span>
+        <h1>Flash BambuBeacon direkt im Browser</h1>
+        <p>Waehle deine ESP32 Variante und spiele die passende Firmware ohne lokale Tools auf.</p>
+        <div id="compat" class="compat hidden"></div>
+      </header>
+
+      <section class="panel">
+        <div class="steps">
+          <div class="step">
+            <span class="step-index">1</span>
+            <p>ESP32 per USB-Datenkabel anschliessen.</p>
+          </div>
+          <div class="step">
+            <span class="step-index">2</span>
+            <p>Variante auswaehlen und Flashen klicken.</p>
+          </div>
+          <div class="step">
+            <span class="step-index">3</span>
+            <p>Nach dem Flashen neu starten und verbinden.</p>
+          </div>
+        </div>
+        <div id="variants" class="variants"></div>
+      </section>
+
+      <footer class="footer">
+        <p>Falls dein Browser WebSerial nicht unterstuetzt, nutze Chrome oder Edge auf Desktop.</p>
+      </footer>
+    </main>
+
+    <template id="variant-card">
+      <article class="card">
+        <div class="card-head">
+          <div>
+            <h2 class="variant-name"></h2>
+            <span class="variant-desc"></span>
+          </div>
+          <span class="chip"></span>
+        </div>
+        <div class="meta">
+          <span class="meta-item version"></span>
+          <span class="meta-item status"></span>
+        </div>
+        <div class="actions"></div>
+        <div class="subnote"></div>
+      </article>
+    </template>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
