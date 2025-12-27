@@ -253,8 +253,49 @@ void BambuMqttClient::handleMqttMessage(char* topic, uint8_t* payload, unsigned 
 }
 
 void BambuMqttClient::handleReportJson(const char* payload) {
+  JsonDocument filter;
+  filter["print"]["gcode_state"] = true;
+  filter["gcode_state"] = true;
+
+  filter["print"]["mc_percent"] = true;
+  filter["mc_percent"] = true;
+  filter["print"]["percent"] = true;
+  filter["percent"] = true;
+
+  filter["print"]["download_progress"] = true;
+  filter["print"]["download_percent"] = true;
+  filter["print"]["dl_percent"] = true;
+  filter["print"]["dl_progress"] = true;
+  filter["print"]["prepare_per"] = true;
+  filter["print"]["gcode_file_prepare_percent"] = true;
+  filter["download_progress"] = true;
+  filter["download_percent"] = true;
+
+  filter["print"]["bed_temper"] = true;
+  filter["print"]["bed_temperature"] = true;
+  filter["bed_temper"] = true;
+  filter["print"]["bed_target_temper"] = true;
+  filter["print"]["bed_target_temperature"] = true;
+  filter["bed_target_temper"] = true;
+
+  filter["print"]["nozzle_temper"] = true;
+  filter["nozzle_temper"] = true;
+  filter["print"]["nozzle_target_temper"] = true;
+  filter["nozzle_target_temper"] = true;
+
+  filter["device"]["extruder"]["info"][0]["hnow"] = true;
+  filter["device"]["extruder"]["info"][0]["htar"] = true;
+  filter["device"]["extruder"]["info"][0]["temp"] = true;
+
+  filter["hms"][0]["attr"] = true;
+  filter["hms"][0]["code"] = true;
+  filter["print"]["hms"][0]["attr"] = true;
+  filter["print"]["hms"][0]["code"] = true;
+  filter["data"]["hms"][0]["attr"] = true;
+  filter["data"]["hms"][0]["code"] = true;
+
   JsonDocument doc;
-  DeserializationError err = deserializeJson(doc, payload);
+  DeserializationError err = deserializeJson(doc, payload, DeserializationOption::Filter(filter));
   if (err) {
     webSerial.printf("[MQTT] JSON parse error: %s\n", err.c_str());
     return;
