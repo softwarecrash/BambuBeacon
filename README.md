@@ -1,4 +1,4 @@
-# BambuBeacon
+﻿# BambuBeacon
 
 ..... still under construction .....
 
@@ -33,7 +33,7 @@ BambuBeacon is an ESP32-based status light for BambuLab printers. It connects to
 - For LED test go to <BambuBeacon-IP>/ledtest
 
 ## Quick Start ##
-1. Build and flash the firmware with PlatformIO.
+1. Flash via the Web Flasher: https://softwarecrash.github.io/BambuBeacon/ (recommended), or build and flash the firmware with PlatformIO.
 2. Power the device and connect to its Wi-Fi AP.
 3. Open the setup page (http://192.168.4.1) and configure Wi-Fi, then reboot into STA mode.
 4. Open Printer Setup and enter printer IP/USN/access key.

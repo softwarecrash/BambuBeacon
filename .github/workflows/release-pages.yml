@@ -1,0 +1,145 @@
+﻿name: Update web flasher manifests
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-pages:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate firmware manifests
+        env:
+          EVENT_PATH: ${{ github.event_path }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import pathlib
+
+          event_path = os.environ.get("EVENT_PATH")
+          with open(event_path, "r", encoding="utf-8") as f:
+            event = json.load(f)
+
+          release = event.get("release") or {}
+          tag = release.get("tag_name") or ""
+          assets = release.get("assets") or []
+
+          bins = []
+          for asset in assets:
+            name = asset.get("name", "")
+            if not name.endswith(".bin") or name.endswith(".bin.ota"):
+              continue
+            bins.append(asset)
+
+          if not bins:
+            raise SystemExit("No .bin assets in release")
+
+          def classify(name):
+            lower = name.lower()
+            if "c3" in lower or "esp32c3" in lower:
+              return "c3", "ESP32-C3", "ESP32-C3", "ESP32-C3 Nano und aehnliche Boards."
+            if "d1_mini" in lower or "d1mini" in lower or "wemos_d1_mini" in lower:
+              return "d1mini", "ESP32", "ESP32 D1 Mini", "Wemos D1 Mini und kompatible ESP32 Boards."
+            if "esp32" in lower:
+              return "esp32", "ESP32", "ESP32", "Allgemeines ESP32 Board."
+            return None
+
+          def find_version(name):
+            match = re.search(r"[._-]v?(\d+\.\d+\.\d+[^._-]*)", name, re.IGNORECASE)
+            if match:
+              return match.group(1)
+            match = re.search(r"v?(\d+\.\d+\.\d+[^._-]*)", tag, re.IGNORECASE)
+            if match:
+              return match.group(1)
+            return ""
+
+          def score(name):
+            lower = name.lower()
+            value = 0
+            if "release" in lower or "rel" in lower:
+              value += 1
+            if "dbg" in lower or "debug" in lower:
+              value -= 1
+            return value
+
+          docs = pathlib.Path("docs")
+          docs.mkdir(exist_ok=True)
+
+          picked = {}
+          for asset in bins:
+            name = asset.get("name", "")
+            info = classify(name)
+            if not info:
+              continue
+            vid, chip, title, desc = info
+            current = picked.get(vid)
+            if current is None or score(name) > score(current.get("name", "")):
+              picked[vid] = {
+                "id": vid,
+                "chip": chip,
+                "title": title,
+                "desc": desc,
+                "name": name,
+                "version": find_version(name),
+                "url": asset.get("browser_download_url")
+              }
+
+          if not picked:
+            raise SystemExit("No recognized ESP32 variants in release assets.")
+
+          variants = []
+          for vid in sorted(picked.keys()):
+            item = picked[vid]
+            manifest_name = f"manifest-bambu-{vid}.json"
+            manifest = {
+              "name": "BambuBeacon",
+              "new_install_prompt_erase": True,
+              "builds": [
+                {
+                  "chipFamily": item["chip"],
+                  "parts": [
+                    {
+                      "path": item["url"],
+                      "offset": 0
+                    }
+                  ]
+                }
+              ]
+            }
+            (docs / manifest_name).write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+            variants.append({
+              "id": item["id"],
+              "name": item["title"],
+              "chipFamily": item["chip"],
+              "description": item["desc"],
+              "version": item["version"] or "unbekannt",
+              "manifest": manifest_name,
+              "binary": item["url"],
+              "available": True
+            })
+
+          (docs / "variants.json").write_text(json.dumps({"variants": variants}, indent=2), encoding="utf-8")
+          print(f"Wrote {len(variants)} variants.")
+          PY
+
+      - name: Commit docs updates
+        run: |
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/variants.json docs/manifest-bambu-*.json
+          git commit -m "Update web flasher manifests for release"
+          git push
