@@ -444,30 +444,27 @@ void LedController::render(uint32_t nowMs) {
       setSegmentColor(1, c, false);
     } else if (st.printProgress <= 100) {
       CRGB base = CRGB::Green;
-      base.nscale8_video(90);
+      base.nscale8_video(70);
       setSegmentColor(1, base, false);
       if (_perSeg > 0) {
-        const uint32_t pos16 = ((uint32_t)nowMs * 256UL / 300UL) % ((uint32_t)_perSeg * 256UL);
-        const uint16_t idx = (uint16_t)(pos16 >> 8);
+        const uint16_t span = (uint16_t)max<uint16_t>(1, _perSeg / 4);
+        const uint32_t pos16 = ((uint32_t)nowMs * 256UL / 320UL) % ((uint32_t)_perSeg * 256UL);
+        const uint16_t head = (uint16_t)(pos16 >> 8);
         const uint8_t frac = (uint8_t)(pos16 & 0xFF);
-        const uint16_t base = segStart(1);
-        const uint16_t next = (idx + 1) % _perSeg;
-        const uint16_t tail = (idx + _perSeg - 1) % _perSeg;
+        const uint16_t baseIdx = segStart(1);
 
-        const uint8_t lead = scale8(255, (uint8_t)(255 - frac));
-        const uint8_t trail = scale8(255, frac);
-
-        CRGB c0 = CRGB::Green;
-        c0.nscale8_video(230 - scale8(80, (uint8_t)(255 - lead)));
-        _leds[base + idx] = c0;
-
-        CRGB c1 = CRGB::Green;
-        c1.nscale8_video(170 - scale8(70, (uint8_t)(255 - trail)));
-        _leds[base + next] = c1;
-
-        CRGB c2 = CRGB::Green;
-        c2.nscale8_video(120);
-        _leds[base + tail] = c2;
+        for (uint16_t i = 0; i < span; i++) {
+          const uint16_t idx = (head + i) % _perSeg;
+          uint8_t level = 200;
+          if (i == 0) {
+            level = 200 + scale8(frac, 55);
+          } else if (i == (span - 1)) {
+            level = 200 - scale8(frac, 55);
+          }
+          CRGB c = CRGB::Green;
+          c.nscale8_video(level);
+          _leds[baseIdx + idx] = c;
+        }
       }
     }
   }
