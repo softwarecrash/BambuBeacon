@@ -1,4 +1,4 @@
-[![GitHub release](https://img.shields.io/github/release/softwarecrash/bambuBeacon?include_prereleases=&sort=semver&color=blue)](https://github.com/softwarecrash/BambuBeacon/releases/latest) [![Discord](https://img.shields.io/discord/1007020337482973254?logo=discord&label=Discord)](https://discord.gg/2ZfMNVrp)
+[![GitHub release](https://img.shields.io/github/release/softwarecrash/bambuBeacon?include_prereleases=&sort=semver&color=blue)](https://github.com/softwarecrash/BambuBeacon/releases/latest) [![Discord](https://img.shields.io/discord/1007020337482973254?logo=discord&label=Discord)](https://discord.gg/Xcm6dfxMqp)
 
 
  # BambuBeacon
