@@ -4,6 +4,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (optional, defaults to latest)"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -17,9 +22,47 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Generate firmware manifests
+      - name: Resolve release for manual dispatch
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         env:
-          EVENT_PATH: ${{ github.event_path }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          token = os.environ.get("GH_TOKEN")
+          repo = os.environ.get("REPO")
+          tag = os.environ.get("TAG") or ""
+          if not token or not repo or not tag:
+            if not token or not repo:
+              raise SystemExit("Missing GH_TOKEN or REPO")
+
+          if tag:
+            url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
+          else:
+            url = f"https://api.github.com/repos/{repo}/releases/latest"
+          req = urllib.request.Request(url, headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json"
+          })
+          with urllib.request.urlopen(req, timeout=30) as resp:
+            release = json.loads(resp.read().decode("utf-8"))
+
+          event = {"release": release}
+          out_path = "/tmp/release-event.json"
+          with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(event, f)
+          print(f"Wrote {out_path}")
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as f:
+            f.write(f"EVENT_PATH={out_path}\n")
+          PY
+
+      - name: Generate firmware manifests
         run: |
           python - <<'PY'
           import json
@@ -27,7 +70,7 @@ jobs:
           import re
           import pathlib
 
-          event_path = os.environ.get("EVENT_PATH")
+          event_path = os.environ.get("EVENT_PATH") or os.environ.get("GITHUB_EVENT_PATH")
           with open(event_path, "r", encoding="utf-8") as f:
             event = json.load(f)
 
