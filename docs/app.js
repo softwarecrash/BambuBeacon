@@ -4,7 +4,7 @@ const compat = document.getElementById("compat");
 const hasWebSerial = "serial" in navigator;
 
 if (!hasWebSerial) {
-  compat.textContent = "WebSerial wird hier nicht unterstuetzt. Nutze Chrome oder Edge auf Desktop.";
+  compat.textContent = "WebSerial is not supported here. Use Chrome or Edge on desktop.";
   compat.classList.remove("hidden");
 }
 
@@ -17,20 +17,20 @@ const buildCard = (variant) => {
   node.querySelector(".chip").textContent = variant.chipFamily || "";
 
   const versionEl = node.querySelector(".version");
-  versionEl.textContent = variant.version ? `Version ${variant.version}` : "Version unbekannt";
+  versionEl.textContent = variant.version ? `Version ${variant.version}` : "Version unknown";
 
   const statusEl = node.querySelector(".status");
   if (variant.available) {
-    statusEl.textContent = "Bereit";
+    statusEl.textContent = "Ready";
     statusEl.classList.add("status--ready");
   } else {
-    statusEl.textContent = variant.note || "Bald verfuegbar";
+    statusEl.textContent = variant.note || "Coming soon";
   }
 
   const actions = node.querySelector(".actions");
   const install = document.createElement("esp-web-install-button");
   install.setAttribute("manifest", variant.manifest);
-  install.setAttribute("install-button-text", "Flashen");
+  install.setAttribute("install-button-text", "Flash");
 
   if (!hasWebSerial || !variant.available) {
     install.setAttribute("disabled", "");
@@ -42,7 +42,7 @@ const buildCard = (variant) => {
   if (variant.binary) {
     const link = document.createElement("a");
     link.href = variant.binary;
-    link.textContent = "Bin herunterladen";
+    link.textContent = "Download bin";
     link.className = "ghost";
     link.setAttribute("download", "");
     actions.appendChild(link);
@@ -64,6 +64,6 @@ fetch("variants.json", { cache: "no-store" })
     });
   })
   .catch(() => {
-    compat.textContent = "Konfiguration konnte nicht geladen werden.";
+    compat.textContent = "Configuration could not be loaded.";
     compat.classList.remove("hidden");
   });

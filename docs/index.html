@@ -1,9 +1,9 @@
 ﻿<!doctype html>
-<html lang="de">
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>BambuBeacon Flash</title>
+    <title>BambuBeacon Web Flasher</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
@@ -18,9 +18,9 @@
     </div>
     <main class="container">
       <header class="hero">
-        <span class="badge">BambuBeacon</span>
-        <h1>Flash BambuBeacon direkt im Browser</h1>
-        <p>Waehle deine ESP32 Variante und spiele die passende Firmware ohne lokale Tools auf.</p>
+        <img class="brand" src="gfx/BambuBeacon_Brand_COLOR.svg" alt="BambuBeacon">
+        <h1>Flash BambuBeacon straight from your browser</h1>
+        <p>Select your ESP32 variant and install the matching firmware without local tools.</p>
         <div id="compat" class="compat hidden"></div>
       </header>
 
@@ -28,22 +28,22 @@
         <div class="steps">
           <div class="step">
             <span class="step-index">1</span>
-            <p>ESP32 per USB-Datenkabel anschliessen.</p>
+            <p>Connect the ESP32 with a data-capable USB cable.</p>
           </div>
           <div class="step">
             <span class="step-index">2</span>
-            <p>Variante auswaehlen und Flashen klicken.</p>
+            <p>Choose your variant and click Flash.</p>
           </div>
           <div class="step">
             <span class="step-index">3</span>
-            <p>Nach dem Flashen neu starten und verbinden.</p>
+            <p>Restart after flashing and connect.</p>
           </div>
         </div>
         <div id="variants" class="variants"></div>
       </section>
 
       <footer class="footer">
-        <p>Falls dein Browser WebSerial nicht unterstuetzt, nutze Chrome oder Edge auf Desktop.</p>
+        <p>If your browser does not support WebSerial, use Chrome or Edge on desktop.</p>
       </footer>
     </main>
 
