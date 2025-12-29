@@ -1,6 +1,6 @@
 [![GitHub release](https://img.shields.io/github/release/softwarecrash/bambuBeacon?include_prereleases=&sort=semver&color=blue)](https://github.com/softwarecrash/BambuBeacon/releases/latest) [![Discord](https://img.shields.io/discord/1007020337482973254?logo=discord&label=Discord)](https://discord.gg/Xcm6dfxMqp)
 
-<img src='https://raw.githubusercontent.com/NeoRame/BambuBeacon/master/src/gfx/BambuBeacon_Brand_COLOR.svg' wight='100%'>
+<img src='src/gfx/BambuBeacon_Brand_COLOR.svg' wight='100%'>
 
 
  # BambuBeacon
