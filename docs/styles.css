@@ -93,7 +93,7 @@ body {
 
 h1 {
   font-family: "Space Grotesk", "Segoe UI", sans-serif;
-  font-size: clamp(32px, 4vw, 56px);
+  font-size: clamp(32px, 2vw, 56px);
   margin: 0;
 }
 
