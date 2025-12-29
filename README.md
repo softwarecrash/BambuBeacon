@@ -59,3 +59,5 @@ Color legend:
 - Red: error/fatal
 - Blue: cooling/download
 - Purple: Wi-Fi reconnect
+
+Spezial thanks to (@NeoRame)[https://github.com/NeoRame] for Logo and Brand
