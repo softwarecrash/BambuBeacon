@@ -82,7 +82,7 @@ private:
   bool configLooksValid() const;
 
   void subscribeReportOnce();
-  void handleReportJson(const char* payload);
+  void handleReportJson(const uint8_t* payload, size_t length);
   void logStatusIfNeeded(uint32_t nowMs);
 
   void parseHmsFromDoc(JsonDocument& doc);

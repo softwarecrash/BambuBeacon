@@ -393,18 +393,42 @@ void LedController::render(uint32_t nowMs) {
   } else if (st.finished) {
     if (_segments >= 1 && _perSeg >= 1) {
       const uint16_t base = segStart(0);
-      const uint32_t lapMs = (uint32_t)_perSeg * 240UL;
-      const uint32_t pauseMs = 1200UL;
+      const uint32_t lapMs = (uint32_t)_perSeg * 180UL;
+      const uint32_t pauseMs = 1400UL;
       const uint32_t phase = (nowMs % (lapMs + pauseMs));
       if (phase < lapMs) {
-        const uint16_t pos = phase / 240UL;
-        for (uint8_t i = 0; i < 3; i++) {
-          const uint16_t idx = (pos + _perSeg - i) % _perSeg;
-          uint8_t scale = (i == 0) ? 255 : (i == 1 ? 140 : 60);
-          CRGB c = CRGB::Green;
-          c.nscale8_video(scale);
-          _leds[base + idx] = c;
+        const uint32_t pos16 = (phase * 256UL) / 180UL;
+        const uint16_t head = (uint16_t)((pos16 >> 8) % _perSeg);
+        const uint8_t frac = (uint8_t)(pos16 & 0xFF);
+        const uint32_t fadeWindow = 500UL;
+        uint8_t fade = 255;
+        if (phase < fadeWindow) {
+          fade = scale8(255, (uint8_t)min<uint32_t>(255, (phase * 255UL) / fadeWindow));
+        } else if (phase > (lapMs - fadeWindow)) {
+          const uint32_t tail = lapMs - phase;
+          fade = scale8(255, (uint8_t)min<uint32_t>(255, (tail * 255UL) / fadeWindow));
         }
+
+        const uint16_t idx0 = head;
+        const uint16_t idx1 = (head + _perSeg - 1) % _perSeg;
+        const uint16_t idx2 = (head + _perSeg - 2) % _perSeg;
+        const uint16_t idx3 = (head + _perSeg - 3) % _perSeg;
+
+        CRGB c0 = CRGB::Green;
+        c0.nscale8_video(scale8((uint8_t)(200 + scale8(frac, 55)), fade));
+        _leds[base + idx0] = c0;
+
+        CRGB c1 = CRGB::Green;
+        c1.nscale8_video(scale8((uint8_t)(160 - scale8(frac, 60)), fade));
+        _leds[base + idx1] = c1;
+
+        CRGB c2 = CRGB::Green;
+        c2.nscale8_video(scale8(110, fade));
+        _leds[base + idx2] = c2;
+
+        CRGB c3 = CRGB::Green;
+        c3.nscale8_video(scale8(70, fade));
+        _leds[base + idx3] = c3;
       }
     }
   } else {
