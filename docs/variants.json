@@ -1,24 +1,24 @@
-﻿{
+{
   "variants": [
-    {
-      "id": "d1mini",
-      "name": "ESP32 D1 Mini",
-      "chipFamily": "ESP32",
-      "description": "Wemos D1 Mini und kompatible ESP32 Boards.",
-      "version": "0.0.1",
-      "manifest": "manifest-bambu-d1mini.json",
-      "binary": "firmware/BambuBeacon_wemos_d1_mini32_DBG_V0.0.1.bin",
-      "available": true
-    },
     {
       "id": "c3",
       "name": "ESP32-C3",
       "chipFamily": "ESP32-C3",
       "description": "ESP32-C3 Nano und aehnliche Boards.",
-      "version": "TBD",
+      "version": "1.0.0",
       "manifest": "manifest-bambu-c3.json",
-      "available": false,
-      "note": "Firmware noch nicht veroeffentlicht."
+      "binary": "https://github.com/softwarecrash/BambuBeacon/releases/download/V1.0.0/BambuBeacon_esp32c3_athom_V1.0.0.bin",
+      "available": true
+    },
+    {
+      "id": "d1mini",
+      "name": "ESP32 D1 Mini",
+      "chipFamily": "ESP32",
+      "description": "Wemos D1 Mini und kompatible ESP32 Boards.",
+      "version": "1.0.0",
+      "manifest": "manifest-bambu-d1mini.json",
+      "binary": "https://github.com/softwarecrash/BambuBeacon/releases/download/V1.0.0/BambuBeacon_wemos_d1_mini32_V1.0.0.bin",
+      "available": true
     }
   ]
 }
