@@ -3,10 +3,6 @@
 <img src='docs/gfx/BambuBeacon_Brand_COLOR.svg' wight='100%'>
 
 
- # BambuBeacon
-
-
-
 ## Project Description ##
 BambuBeacon is an ESP32-based status light for BambuLab printers. It connects to your printer, listens for status updates, and drives multi-ring WS2812 LEDs to visualize printer state, progress, and connectivity in real time. The project includes a built-in web UI for setup, Wi-Fi configuration, and device management.
 
