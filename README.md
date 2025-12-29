@@ -1,4 +1,4 @@
-[![GitHub release](https://img.shields.io/github/release/softwarecrash/bambuBeacon?include_prereleases=&sort=semver&color=blue)](https://github.com/softwarecrash/BambuBeacon/releases/latest) [![Discord](https://img.shields.io/discord/1007020337482973254?logo=discord&label=Discord)](https://discord.gg/2ZfMNVrp)
+[![GitHub release](https://img.shields.io/github/release/softwarecrash/bambuBeacon?include_prereleases=&sort=semver&color=blue)](https://github.com/softwarecrash/BambuBeacon/releases/latest) [![Discord](https://img.shields.io/discord/1007020337482973254?logo=discord&label=Discord)](https://discord.gg/Xcm6dfxMqp)
 
 
  # BambuBeacon
@@ -46,7 +46,7 @@ BambuBeacon is an ESP32-based status light for BambuLab printers. It connects to
 ## Default LED Settings ##
 - LED segments: 3
 - LEDs per ring: 12
-- Brightness: 50 (0-255)
+- Brightness: 50 (0-100)
 - Max LED current: 500 mA (range 100-5000 mA, 5V assumed)
 - Ring order: Top -> Middle -> Bottom
 
