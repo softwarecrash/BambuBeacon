@@ -209,6 +209,10 @@ void BBLPrinterDiscovery::readPacketsNonBlocking(unsigned long now)
       usnStr = response.substring(usnPos + 4, end);
       usnStr.trim();
     }
+    if (!usnStr.length()) {
+      // Ignore non-Bambu responses (no USN).
+      continue;
+    }
 
     // Update settings IP if stored USN matches
     const char* storedUSN = settings.get.printerUSN();

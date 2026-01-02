@@ -8,12 +8,29 @@ class AsyncWebServer;
 // WebSerialClass mirrors Serial output to WebSerial (WS) and keeps Serial RX working.
 class WebSerialClass : public Stream {
 public:
+  void waitForSerial(uint32_t timeoutMs = 2000) {
+    const uint32_t start = millis();
+    while (!Serial && (millis() - start) < timeoutMs) {
+      delay(10);
+    }
+  }
+
   void begin(unsigned long baud = 115200) {
     Serial.begin(baud);
+#ifdef WEBSERIAL_WAIT_FOR_SERIAL_MS
+    if (WEBSERIAL_WAIT_FOR_SERIAL_MS > 0) {
+      waitForSerial((uint32_t)WEBSERIAL_WAIT_FOR_SERIAL_MS);
+    }
+#endif
   }
 
   void begin(AsyncWebServer* server, unsigned long baud = 115200, size_t bufferSize = 100) {
     Serial.begin(baud);
+#ifdef WEBSERIAL_WAIT_FOR_SERIAL_MS
+    if (WEBSERIAL_WAIT_FOR_SERIAL_MS > 0) {
+      waitForSerial((uint32_t)WEBSERIAL_WAIT_FOR_SERIAL_MS);
+    }
+#endif
 
     _ws.begin(server);
     _ws.setBuffer(bufferSize);
