@@ -9,6 +9,7 @@
 #include "BambuMqttClient.h"
 #include "WebServerHandler.h"
 #include "WebSerial.h"
+#include "GitHubOtaUpdater.h"
 
 LedController ledsCtrl;
 Settings settings;
@@ -17,6 +18,7 @@ AsyncWebServer server(80);
 WebServerHandler web(server);
 BBLPrinterDiscovery printerDiscovery;
 BambuMqttClient bambu;
+GitHubOtaUpdater ota("softwarecrash", "BambuBeacon", STRVERSION, BUILD_VARIANT);
 
 void setup() {
 #ifdef WSL_CUSTOM_PAGE
@@ -26,6 +28,7 @@ void setup() {
 
   settings.begin();
   webSerial.setAuthentication(settings.get.webUIuser(), settings.get.webUIPass());
+  ota.begin();
   ledsCtrl.begin(settings);
   wifiManager.begin();
   web.begin();

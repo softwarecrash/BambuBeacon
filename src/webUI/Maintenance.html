@@ -5,6 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>BambuBeacon Maintenance</title>
   <link rel="stylesheet" href="/style.css" />
+  <style>
+    .btn-slot{position:relative;width:100%;min-height:44px}
+    .btn-slot > .btn,
+    .btn-slot > .progress-wrap{position:absolute;inset:0}
+    .btn-slot > .progress-wrap{margin-top:0;padding:6px 10px;display:none}
+    .btn-slot .progress-bar{height:8px}
+    .btn-slot .progress-label{margin-top:4px;font-size:11px}
+  </style>
 </head>
 <body>
   <canvas id="particleCanvas"></canvas>
@@ -16,24 +24,36 @@
     </div>
 
     <div class="panel">
-      <div class="panel-title">Firmware Update</div>
+      <div class="panel-title">Online Update</div>
 
-      <label for="fwFile">Firmware (.ota)</label>
-      <input type="file" id="fwFile" accept=".ota,application/octet-stream" />
-
-      <div class="progress-wrap" aria-live="polite">
-        <div class="progress-bar"><span id="fwProgressBar"></span></div>
-        <div class="progress-label">
-          <span id="fwProgressText">0%</span>
-          <span id="fwProgressSize">0 / 0</span>
+      <div class="button-stack actions">
+        <div class="btn-slot">
+          <button type="button" class="btn" id="otaUpdateBtn" disabled>Update Now</button>
+          <div class="progress-wrap" id="otaProgressWrap" aria-live="polite">
+            <div class="progress-bar"><span id="otaProgressBar"></span></div>
+            <div class="progress-label">
+              <span id="otaProgressText">0%</span>
+              <span id="otaProgressSize">0 / 0</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div class="button-stack actions">
-        <button type="button" class="btn" id="fwUploadBtn">Upload Firmware</button>
-      </div>
-      <div class="note">Device reboots after a successful update.</div>
+      <div class="detailSplitter">Manual Firmware Update</div>
 
+      <div class="button-stack actions">
+        <input type="file" id="fwFile" accept=".ota,application/octet-stream" style="display:none" />
+        <div class="btn-slot">
+          <button type="button" class="btn" id="fwUploadBtn">Choose Firmware (.ota)</button>
+          <div class="progress-wrap" id="fwProgressWrap" aria-live="polite">
+            <div class="progress-bar"><span id="fwProgressBar"></span></div>
+            <div class="progress-label">
+              <span id="fwProgressText">0%</span>
+              <span id="fwProgressSize">0 / 0</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="panel">
@@ -43,23 +63,20 @@
         <button type="button" class="btn btn-outline" id="backupBtn">Download Backup</button>
       </div>
 
-      <div class="detailSplitter">Restore</div>
-
-      <label for="restoreFile">Backup file (.json)</label>
-      <input type="file" id="restoreFile" accept=".json,application/json" />
+      <div class="panel-title">Restore</div>
 
       <div class="button-stack actions">
-        <button type="button" class="btn" id="restoreBtn" disabled>Restore Config</button>
-        <button type="button" class="btn btn-outline" onclick="location.href='/'">Back</button>
+        <input type="file" id="restoreFile" accept=".json,application/json" style="display:none" />
+        <button type="button" class="btn" id="restoreBtn">Restore Config (.json)</button>
+        <div class="detailSplitter">LED Test</div>
+        <button type="button" class="btn btn-outline" onclick="location.href='/ledtest'">Open LED Test Page</button>
       </div>
     </div>
 
     <div class="panel">
-      <div class="panel-title">LED Test</div>
       <div class="button-stack">
-        <button type="button" class="btn btn-outline" onclick="location.href='/ledtest'">Open LED Test Page</button>
+        <button type="button" class="btn btn-outline" onclick="location.href='/'">Back</button>
       </div>
-      <div class="note">Use the test page to preview LED states without printing.</div>
     </div>
   </div>
 
@@ -112,8 +129,12 @@
     }
 
     function setFirmwareBusy(busy) {
-      document.getElementById("fwUploadBtn").disabled = busy;
+      const btn = document.getElementById("fwUploadBtn");
+      const wrap = document.getElementById("fwProgressWrap");
+      btn.disabled = busy;
       document.getElementById("fwFile").disabled = busy;
+      btn.style.display = busy ? "none" : "block";
+      wrap.style.display = busy ? "block" : "none";
     }
 
     function setRestoreBusy(busy) {
@@ -122,13 +143,99 @@
       document.getElementById("backupBtn").disabled = busy;
     }
 
-    document.getElementById("fwUploadBtn").addEventListener("click", () => {
-      const file = document.getElementById("fwFile").files[0];
-      if (!file) {
-        alertToast("warning", "Select a firmware file first.");
-        return;
+    function setOtaProgress(percent, loaded, total) {
+      const pct = Math.max(0, Math.min(100, percent || 0));
+      document.getElementById("otaProgressBar").style.width = pct.toFixed(1) + "%";
+      document.getElementById("otaProgressText").textContent = pct.toFixed(0) + "%";
+      document.getElementById("otaProgressSize").textContent =
+        formatBytes(loaded || 0) + " / " + formatBytes(total || 0);
+    }
+
+    let otaSuccessRedirected = false;
+    function updateOtaUi(j) {
+      if (!j) return;
+      const updateBtn = document.getElementById("otaUpdateBtn");
+      const progressWrap = document.getElementById("otaProgressWrap");
+
+      const state = j.state || "idle";
+      const busy = !!j.busy;
+      const latest = j.latest || "-";
+      const err = j.error || "";
+
+      if (state === "checking") {
+        updateBtn.textContent = "Checking for update...";
+        updateBtn.disabled = true;
+      } else if (state === "update_available") {
+        updateBtn.textContent = "Update to v" + latest;
+        updateBtn.disabled = busy;
+      } else if (state === "downloading") {
+        updateBtn.textContent = "Updating...";
+        updateBtn.disabled = true;
+      } else if (state === "success") {
+        updateBtn.textContent = "Update complete";
+        updateBtn.disabled = true;
+        if (!otaSuccessRedirected) {
+          otaSuccessRedirected = true;
+          setOtaProgress(100, j.bytesTotal || j.bytesDone || 0, j.bytesTotal || j.bytesDone || 0);
+          setTimeout(() => { location.href = "/"; }, 1200);
+        }
+      } else if (state === "error") {
+        updateBtn.textContent = err ? "Update error" : "Update failed";
+        updateBtn.disabled = true;
+      } else if (state === "up_to_date") {
+        updateBtn.textContent = "Up to date";
+        updateBtn.disabled = true;
+      } else {
+        updateBtn.textContent = "Update Now";
+        updateBtn.disabled = true;
       }
 
+      const showProgress = (state === "downloading" || state === "success");
+      progressWrap.style.display = showProgress ? "block" : "none";
+      updateBtn.style.display = showProgress ? "none" : "block";
+
+      setOtaProgress(j.progress || 0, j.bytesDone || 0, j.bytesTotal || 0);
+    }
+
+    let otaPollHandle = null;
+    function startOtaPoll() {
+      if (otaPollHandle) return;
+      otaPollHandle = setInterval(fetchOtaStatus, 1500);
+    }
+
+    function stopOtaPoll() {
+      if (!otaPollHandle) return;
+      clearInterval(otaPollHandle);
+      otaPollHandle = null;
+    }
+
+    async function fetchOtaStatus() {
+      try {
+        const res = await fetch("/ota/status", { cache: "no-store" });
+        if (!res.ok) return;
+        const j = await res.json();
+        updateOtaUi(j);
+        if (!j.busy) stopOtaPoll();
+      } catch {
+        stopOtaPoll();
+      }
+    }
+
+    async function requestOtaCheck() {
+      try {
+        const res = await fetch("/ota/check", { method: "POST", cache: "no-store" });
+        if (res.ok) {
+          updateOtaUi(await res.json());
+          startOtaPoll();
+        } else {
+          alertToast("error", "Update check failed: " + res.status);
+        }
+      } catch {
+        alertToast("error", "Update check failed.");
+      }
+    }
+
+    function startFirmwareUpload(file) {
       setFirmwareBusy(true);
       setProgress(0, 0, file.size || 0);
 
@@ -140,11 +247,13 @@
         }
       });
       xhr.onload = () => {
-        setFirmwareBusy(false);
         if (xhr.status === 200) {
+          setFirmwareBusy(true);
           setProgress(100, file.size || 0, file.size || 0);
           alertToast("success", "Firmware uploaded. Rebooting...");
+          setTimeout(() => { location.href = "/"; }, 1200);
         } else {
+          setFirmwareBusy(false);
           alertToast("error", "Firmware upload failed: " + xhr.status);
         }
       };
@@ -156,24 +265,24 @@
       const data = new FormData();
       data.append("firmware", file);
       xhr.send(data);
+    }
+
+    document.getElementById("fwUploadBtn").addEventListener("click", () => {
+      if (document.getElementById("fwUploadBtn").disabled) return;
+      document.getElementById("fwFile").click();
+    });
+
+    document.getElementById("fwFile").addEventListener("change", () => {
+      const file = document.getElementById("fwFile").files[0];
+      if (!file) return;
+      startFirmwareUpload(file);
     });
 
     document.getElementById("backupBtn").addEventListener("click", () => {
       location.href = "/config/backup?pretty=1";
     });
 
-    document.getElementById("restoreFile").addEventListener("change", () => {
-      const file = document.getElementById("restoreFile").files[0];
-      document.getElementById("restoreBtn").disabled = !file;
-    });
-
-    document.getElementById("restoreBtn").addEventListener("click", () => {
-      const file = document.getElementById("restoreFile").files[0];
-      if (!file) {
-        alertToast("warning", "Select a backup file first.");
-        return;
-      }
-
+    function startRestore(file) {
       const reader = new FileReader();
       reader.onload = async () => {
         try {
@@ -197,20 +306,40 @@
       };
       reader.onerror = () => alertToast("error", "Failed to read backup file.");
       reader.readAsText(file);
+    }
+
+    document.getElementById("restoreBtn").addEventListener("click", () => {
+      if (document.getElementById("restoreBtn").disabled) return;
+      document.getElementById("restoreFile").click();
+    });
+
+    document.getElementById("restoreFile").addEventListener("change", () => {
+      const file = document.getElementById("restoreFile").files[0];
+      if (!file) return;
+      startRestore(file);
+    });
+
+    document.getElementById("otaUpdateBtn").addEventListener("click", async () => {
+      try {
+        const res = await fetch("/ota/update", { method: "POST", cache: "no-store" });
+        if (res.ok) {
+          updateOtaUi(await res.json());
+          alertToast("success", "Update started. Downloading...");
+          startOtaPoll();
+        } else {
+          alertToast("error", "Update start failed: " + res.status);
+        }
+      } catch {
+        alertToast("error", "Update start failed.");
+      }
     });
   </script>
   <script>
     (function () {
-      const el = document.getElementById("fwFooter");
-      if (!el) return;
-      fetch("/info.json", { cache: "no-store" })
-        .then(r => r.ok ? r.json() : null)
-        .then(j => {
-          if (!j || !j.version) return;
-          el.textContent = "Firmware v" + j.version + " by SoftWareCrash";
-        })
-        .catch(() => {});
+      fetchOtaStatus();
+      requestOtaCheck();
     })();
   </script>
+  <script src="/footer.js"></script>
 </body>
 </html>

@@ -10,12 +10,14 @@
 #include "bblPrinterDiscovery.h"
 #include "BambuMqttClient.h"
 #include "LedController.h"
+#include "GitHubOtaUpdater.h"
 
 extern Settings settings;
 extern WiFiManager wifiManager;
 extern BBLPrinterDiscovery printerDiscovery;
 extern BambuMqttClient bambu;
 extern LedController ledsCtrl;
+extern GitHubOtaUpdater ota;
 static void scheduleRestart(uint32_t delayMs);
 
 const uint8_t* webserialHtml() {
@@ -377,6 +379,10 @@ void WebServerHandler::begin() {
     sendGz(req, backgroundCanvas_js_gz, backgroundCanvas_js_gz_len, backgroundCanvas_js_gz_mime);
   });
 
+  server.on("/footer.js", HTTP_GET, [&](AsyncWebServerRequest* req) {
+    sendGz(req, footer_js_gz, footer_js_gz_len, footer_js_gz_mime);
+  });
+
   server.on("/netlist", HTTP_GET, [&](AsyncWebServerRequest* req) {
     if (!wifiManager.isApMode()) {
       if (!isAuthorized(req)) return req->requestAuthentication();
@@ -471,7 +477,7 @@ void WebServerHandler::begin() {
       }
       const bool ok = !Update.hasError();
       req->send(ok ? 200 : 500, "application/json", ok ? "{\"success\":true}" : "{\"success\":false}");
-      if (ok) scheduleRestart(600);
+      if (ok) scheduleRestart(2500);
     },
     [&](AsyncWebServerRequest* req, String filename, size_t index, uint8_t* data, size_t len, bool final) {
       (void)filename;
@@ -491,6 +497,38 @@ void WebServerHandler::begin() {
       }
     }
   );
+
+  server.on("/ota/status", HTTP_GET, [&](AsyncWebServerRequest* req) {
+    if (!wifiManager.isApMode()) {
+      if (!isAuthorized(req)) return req->requestAuthentication();
+    }
+    const String out = ota.statusJson();
+    AsyncWebServerResponse* r = req->beginResponse(200, "application/json", out);
+    r->addHeader("Cache-Control", "no-store");
+    req->send(r);
+  });
+
+  server.on("/ota/check", HTTP_POST, [&](AsyncWebServerRequest* req) {
+    if (!wifiManager.isApMode()) {
+      if (!isAuthorized(req)) return req->requestAuthentication();
+    }
+    ota.requestCheck();
+    const String out = ota.statusJson();
+    AsyncWebServerResponse* r = req->beginResponse(200, "application/json", out);
+    r->addHeader("Cache-Control", "no-store");
+    req->send(r);
+  });
+
+  server.on("/ota/update", HTTP_POST, [&](AsyncWebServerRequest* req) {
+    if (!wifiManager.isApMode()) {
+      if (!isAuthorized(req)) return req->requestAuthentication();
+    }
+    ota.startUpdate();
+    const String out = ota.statusJson();
+    AsyncWebServerResponse* r = req->beginResponse(200, "application/json", out);
+    r->addHeader("Cache-Control", "no-store");
+    req->send(r);
+  });
 
   server.on("/netconf.json", HTTP_GET, [&](AsyncWebServerRequest* req) {
     if (!wifiManager.isApMode()) {
