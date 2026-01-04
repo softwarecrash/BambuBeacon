@@ -27,7 +27,7 @@ BambuBeacon is an ESP32-based status light for BambuLab printers. It connects to
 - BambuLab printer (make less sense without one)
 
 ## Wiring Notes ##
-- Connect LED data to the GPIO defined by `LED_PIN` in `platformio.ini`
+- Connect LED data to the GPIO defined by `LED_PIN` in `platformio.ini` for wemos d1 esp32 data pin is GPIO16 for ESp32C3 variant GPIO10
 - Share ground between the ESP32 and the LED rings
 - Power the LED rings from a stable 5V supply (2A or more recommended)
 - Optional but recommended: place a small resistor (~330-470 Ohm) in series with the data line
