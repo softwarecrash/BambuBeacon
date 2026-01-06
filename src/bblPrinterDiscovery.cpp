@@ -52,6 +52,10 @@ bool BBLPrinterDiscovery::isBusy() const
 
 void BBLPrinterDiscovery::forceRescan(unsigned long minDelayMs)
 {
+  if (WiFi.status() != WL_CONNECTED) {
+    state_ = State::IDLE;
+    return;
+  }
   forceRescan_ = true;
   nextRunMs_ = millis() + minDelayMs;
 }
@@ -160,6 +164,10 @@ void BBLPrinterDiscovery::drainPacket(int size)
 
 void BBLPrinterDiscovery::readPacketsNonBlocking(unsigned long now)
 {
+  if (WiFi.status() != WL_CONNECTED) {
+    state_ = State::IDLE;
+    return;
+  }
   // State machine for sending without blocking
   if (state_ == State::SEND_1 && now >= sendAtMs_)
   {
