@@ -10,6 +10,20 @@ extern Settings settings;
 static DNSServer dns;
 static const IPAddress apIP(192,168,4,1);
 
+static bool parseBssid(const char* str, uint8_t out[6]) {
+  if (!str || !*str) return false;
+  int vals[6] = {};
+  if (sscanf(str, "%x:%x:%x:%x:%x:%x",
+             &vals[0], &vals[1], &vals[2], &vals[3], &vals[4], &vals[5]) != 6) {
+    return false;
+  }
+  for (int i = 0; i < 6; i++) {
+    if (vals[i] < 0 || vals[i] > 255) return false;
+    out[i] = static_cast<uint8_t>(vals[i]);
+  }
+  return true;
+}
+
 void WiFiManager::startConnectAttempt() {
   const char* ssid0 = settings.get.wifiSsid0();
   const char* pass0 = settings.get.wifiPass0();
@@ -22,6 +36,14 @@ void WiFiManager::startConnectAttempt() {
   _lastFailNoAp = false;
   WiFi.mode(_apMode ? WIFI_AP_STA : WIFI_STA);
   WiFi.setHostname(settings.get.deviceName());
+  WiFi.setSleep(false);
+#ifdef ARDUINO_ARCH_ESP32
+#ifdef LOLIN_WIFI_FIX
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
+#else
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);
+#endif
+#endif
 
   // Optional static IP
   IPAddress ip, sn, gw, dnsip;
@@ -34,7 +56,14 @@ void WiFiManager::startConnectAttempt() {
     WiFi.config(ip, gw, sn, dnsip);
   }
 
-  WiFi.begin(ssid0, pass0);
+  uint8_t bssid[6] = {};
+  const bool lockBssid = settings.get.wifiBssidLock();
+  const char* bssidStr = settings.get.wifiBssid0();
+  if (lockBssid && parseBssid(bssidStr, bssid)) {
+    WiFi.begin(ssid0, pass0, 0, bssid, true);
+  } else {
+    WiFi.begin(ssid0, pass0);
+  }
   _connectPhase = ConnectPhase::SSID0;
   _connectStart = millis();
 }

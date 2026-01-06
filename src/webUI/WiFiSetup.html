@@ -30,6 +30,11 @@
       <input type="text" id="ssid0" autocomplete="off" />
       <input type="hidden" id="bssid0" />
 
+      <label>
+        <input type="checkbox" id="bssidLock" />
+        Lock to selected BSSID (Mesh/Steering off)
+      </label>
+
       <label for="password0">Password</label>
       <input type="password" id="password0" autocomplete="new-password" />
 
@@ -168,6 +173,8 @@
         document.getElementById("ssid0").value = c.ssid0 || "";
         document.getElementById("password0").value = c.pass0 || "";
         document.getElementById("bssid0").value = c.bssid0 || "";
+        const lock = (c.bssidLock === true);
+        document.getElementById("bssidLock").checked = lock;
 
         document.getElementById("ssid1").value = c.ssid1 || "";
         document.getElementById("password1").value = c.pass1 || "";
@@ -191,6 +198,7 @@
           `&ssid0=${encodeURIComponent(document.getElementById("ssid0").value)}` +
           `&password0=${encodeURIComponent(document.getElementById("password0").value)}` +
           `&bssid0=${encodeURIComponent(document.getElementById("bssid0").value)}` +
+          `&bssidLock=${encodeURIComponent(document.getElementById("bssidLock").checked ? "1" : "0")}` +
           `&ssid1=${encodeURIComponent(document.getElementById("ssid1").value)}` +
           `&password1=${encodeURIComponent(document.getElementById("password1").value)}` +
           `&bssid1=${encodeURIComponent(document.getElementById("bssid1").value)}` +

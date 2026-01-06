@@ -164,6 +164,11 @@ void WebServerHandler::handleSubmitConfig(AsyncWebServerRequest* req) {
   settings.set.wifiSsid0(getP("ssid0"));
   settings.set.wifiPass0(getP("password0"));
   settings.set.wifiBssid0(getP("bssid0"));
+  const String bssidLock = getP("bssidLock");
+  if (bssidLock.length()) {
+    const bool lock = (bssidLock == "1" || bssidLock == "true" || bssidLock == "on");
+    settings.set.wifiBssidLock(lock);
+  }
 
   // FIX: ssid1 must go to wifiSsid1 (was wrongly written to wifiSsid0)
   settings.set.wifiSsid1(getP("ssid1"));
@@ -540,6 +545,7 @@ void WebServerHandler::begin() {
     doc["ssid0"] = settings.get.wifiSsid0();
     doc["pass0"] = settings.get.wifiPass0();
     doc["bssid0"] = settings.get.wifiBssid0();
+    doc["bssidLock"] = settings.get.wifiBssidLock();
     doc["ssid1"] = settings.get.wifiSsid1();
     doc["pass1"] = settings.get.wifiPass1();
     doc["ip"] = settings.get.staticIP();

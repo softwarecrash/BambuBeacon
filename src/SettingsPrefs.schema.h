@@ -16,6 +16,7 @@
   X(STRING, "network",   "deviceName",         deviceName,      "BambuBeacon", 0,    0) \
   X(STRING, "network",   "wifiSsid0",          wifiSsid0,       "",          0,    0) \
   X(STRING, "network",   "wifiBssid0",         wifiBssid0,      "",          0,    0) \
+  X(BOOL,   "network",   "wifiBssidLock",      wifiBssidLock,   false,       0,    0) \
   X(STRING, "network",   "wifiPass0",          wifiPass0,       "",          0,    0) \
   X(STRING, "network",   "wifiSsid1",          wifiSsid1,       "",          0,    0) \
   X(STRING, "network",   "wifiPass1",          wifiPass1,       "",          0,    0) \
