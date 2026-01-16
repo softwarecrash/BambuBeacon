@@ -251,6 +251,13 @@ void WebServerHandler::handleSubmitPrinterConfig(AsyncWebServerRequest* req) {
     settings.set.LEDReverseOrder(enabled);
   }
 
+  if (req->hasParam("idletimeout", true)) {
+    long v = getP("idletimeout").toInt();
+    if (v < 0) v = 0;
+    if (v > 240) v = 240;
+    settings.set.idleTimeoutMin((uint16_t)v);
+  }
+
   settings.save();
   ledsCtrl.applySettingsFrom(settings);
 
@@ -574,6 +581,7 @@ void WebServerHandler::begin() {
     doc["ledPerSeg"] = settings.get.LEDperSeg();
     doc["ledMaxCurrentmA"] = settings.get.LEDMaxCurrentmA();
     doc["ledReverseOrder"] = settings.get.LEDReverseOrder();
+    doc["idleTimeoutMin"] = settings.get.idleTimeoutMin();
 
     String out;
     serializeJson(doc, out);

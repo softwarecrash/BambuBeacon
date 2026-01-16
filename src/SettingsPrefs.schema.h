@@ -36,4 +36,5 @@
   X(UINT16, "device",   "LEDBrightness",      LEDBrightness,    50,         0,     255) \
   X(UINT16, "device",   "LEDMaxCurrentmA",    LEDMaxCurrentmA,  500,       100,    5000) \
   X(BOOL,   "device",   "LEDReverseOrder",    LEDReverseOrder,  false,       0,     0) \
+  X(UINT16, "device",   "idleTimeoutMin",     idleTimeoutMin,   15,          0,   240) \
   /* End of settings items */

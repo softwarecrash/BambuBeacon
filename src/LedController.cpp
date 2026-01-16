@@ -24,6 +24,8 @@ LedController::LedController()
   _brightness(0),
   _maxCurrentmA(0),
   _reverseOrder(false),
+  _idleTimeoutMin(0),
+  _lastActiveMs(0),
   _dirty(false),
   _lastTickMs(0),
   _bootTestActive(false),
@@ -61,6 +63,7 @@ bool LedController::begin(Settings& settings) {
   _brightness = (uint8_t)settings.get.LEDBrightness();
   _maxCurrentmA = settings.get.LEDMaxCurrentmA();
   _reverseOrder = settings.get.LEDReverseOrder();
+  _idleTimeoutMin = settings.get.idleTimeoutMin();
 
   if (_perSeg == 0 || _segments == 0) return false;
   if (!alloc((uint16_t)_perSeg * _segments)) return false;
@@ -81,6 +84,7 @@ bool LedController::begin(Settings& settings) {
   uint32_t now = millis();
   startBootTest(now);
   _lastTickMs = now;
+  _lastActiveMs = now;
   return true;
 }
 
@@ -99,6 +103,12 @@ void LedController::applySettingsFrom(Settings& settings) {
   bool newReverse = settings.get.LEDReverseOrder();
   if (newReverse != _reverseOrder) {
     _reverseOrder = newReverse;
+    markDirty();
+  }
+  uint16_t newIdle = settings.get.idleTimeoutMin();
+  if (newIdle != _idleTimeoutMin) {
+    _idleTimeoutMin = newIdle;
+    _lastActiveMs = millis();
     markDirty();
   }
 }
@@ -370,6 +380,30 @@ void LedController::render(uint32_t nowMs) {
     return;
   }
 
+  if (!_testMode && _idleTimeoutMin > 0) {
+    const bool active =
+      (st.hmsSev >= 2) ||
+      st.finished ||
+      st.heating ||
+      st.cooling ||
+      st.paused ||
+      (st.printProgress <= 100) ||
+      (st.downloadProgress <= 100) ||
+      !st.wifiOk;
+
+    if (active) {
+      _lastActiveMs = nowMs;
+    } else {
+      if (_lastActiveMs == 0) _lastActiveMs = nowMs;
+      const uint32_t timeoutMs = (uint32_t)_idleTimeoutMin * 60000UL;
+      if ((uint32_t)(nowMs - _lastActiveMs) >= timeoutMs) {
+        clear(false);
+        markDirty();
+        return;
+      }
+    }
+  }
+
   clear(false);
 
   // LED plan (English, keep synced with behavior):
@@ -467,28 +501,23 @@ void LedController::render(uint32_t nowMs) {
       c.nscale8_video(level);
       setSegmentColor(1, c, false);
     } else if (st.printProgress <= 100) {
-      CRGB base = CRGB::Green;
-      base.nscale8_video(70);
-      setSegmentColor(1, base, false);
-      if (_perSeg > 0) {
-        const uint16_t span = (uint16_t)max<uint16_t>(1, _perSeg / 4);
-        const uint32_t pos16 = ((uint32_t)nowMs * 256UL / 320UL) % ((uint32_t)_perSeg * 256UL);
-        const uint16_t head = (uint16_t)(pos16 >> 8);
-        const uint8_t frac = (uint8_t)(pos16 & 0xFF);
-        const uint16_t baseIdx = segStart(1);
+      const uint16_t baseIdx = segStart(1);
+      const uint8_t baseLevel = 150;
+      const uint8_t dipDepth = 220;
+      const uint8_t timePhase = (uint8_t)(nowMs / 24);
 
-        for (uint16_t i = 0; i < span; i++) {
-          const uint16_t idx = (head + i) % _perSeg;
-          uint8_t level = 200;
-          if (i == 0) {
-            level = 200 + scale8(frac, 55);
-          } else if (i == (span - 1)) {
-            level = 200 - scale8(frac, 55);
-          }
-          CRGB c = CRGB::Green;
-          c.nscale8_video(level);
-          _leds[baseIdx + idx] = c;
-        }
+      for (uint16_t i = 0; i < _perSeg; i++) {
+        const uint8_t phase = (uint8_t)(timePhase - (uint8_t)((i * 256U) / _perSeg));
+        const uint8_t wave = cos8(phase);
+        const uint8_t shaped = qadd8(wave, scale8(wave, 128));
+        const uint8_t drop = scale8(shaped, dipDepth);
+
+        int16_t level = (int16_t)baseLevel - (int16_t)drop;
+        if (level < 0) level = 0;
+
+        CRGB c = CRGB::Green;
+        c.nscale8_video((uint8_t)level);
+        _leds[baseIdx + i] = c;
       }
     }
   }
@@ -528,7 +557,7 @@ void LedController::loop() {
   if (!_leds) return;
 
   uint32_t now = millis();
-  if ((uint32_t)(now - _lastTickMs) >= 25) {
+  if ((uint32_t)(now - _lastTickMs) >= 40) {
     _lastTickMs = now;
     tick(now);
   }

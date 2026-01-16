@@ -103,6 +103,8 @@ private:
   uint8_t  _brightness;
   uint16_t _maxCurrentmA;
   bool     _reverseOrder;
+  uint16_t _idleTimeoutMin;
+  uint32_t _lastActiveMs;
 
   bool     _dirty;
   uint32_t _lastTickMs;
