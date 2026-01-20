@@ -1,4 +1,4 @@
-﻿name: Update web flasher manifests
+name: Update web flasher manifests
 
 on:
   release:
@@ -30,25 +30,22 @@ jobs:
           TAG: ${{ inputs.tag }}
         run: |
           python - <<'PY'
-          import json
-          import os
-          import urllib.request
+          import json, os, urllib.request
 
           token = os.environ.get("GH_TOKEN")
-          repo = os.environ.get("REPO")
-          tag = os.environ.get("TAG") or ""
-          if not token or not repo or not tag:
-            if not token or not repo:
-              raise SystemExit("Missing GH_TOKEN or REPO")
+          repo  = os.environ.get("REPO")
+          tag   = os.environ.get("TAG") or ""
 
-          if tag:
-            url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
-          else:
-            url = f"https://api.github.com/repos/{repo}/releases/latest"
+          if not token or not repo:
+            raise SystemExit("Missing GH_TOKEN or REPO")
+
+          url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}" if tag else f"https://api.github.com/repos/{repo}/releases/latest"
+
           req = urllib.request.Request(url, headers={
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json"
           })
+
           with urllib.request.urlopen(req, timeout=30) as resp:
             release = json.loads(resp.read().decode("utf-8"))
 
@@ -56,19 +53,23 @@ jobs:
           out_path = "/tmp/release-event.json"
           with open(out_path, "w", encoding="utf-8") as f:
             json.dump(event, f)
-          print(f"Wrote {out_path}")
 
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as f:
             f.write(f"EVENT_PATH={out_path}\n")
+
+          print(f"Wrote {out_path}")
           PY
 
-      - name: Generate firmware manifests
+      - name: Generate firmware manifests + download BINs to docs/firmware
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python - <<'PY'
           import json
           import os
           import re
           import pathlib
+          import subprocess
 
           event_path = os.environ.get("EVENT_PATH") or os.environ.get("GITHUB_EVENT_PATH")
           with open(event_path, "r", encoding="utf-8") as f:
@@ -99,12 +100,12 @@ jobs:
             return None
 
           def find_version(name):
-            match = re.search(r"[._-]v?(\d+\.\d+\.\d+[^._-]*)", name, re.IGNORECASE)
-            if match:
-              return match.group(1)
-            match = re.search(r"v?(\d+\.\d+\.\d+[^._-]*)", tag, re.IGNORECASE)
-            if match:
-              return match.group(1)
+            m = re.search(r"[._-]v?(\d+\.\d+\.\d+[^._-]*)", name, re.IGNORECASE)
+            if m:
+              return m.group(1)
+            m = re.search(r"v?(\d+\.\d+\.\d+[^._-]*)", tag, re.IGNORECASE)
+            if m:
+              return m.group(1)
             return ""
 
           def score(name):
@@ -117,7 +118,9 @@ jobs:
             return value
 
           docs = pathlib.Path("docs")
+          fwdir = docs / "firmware"
           docs.mkdir(exist_ok=True)
+          fwdir.mkdir(exist_ok=True)
 
           picked = {}
           for asset in bins:
@@ -126,8 +129,8 @@ jobs:
             if not info:
               continue
             vid, chip, title, desc = info
-            current = picked.get(vid)
-            if current is None or score(name) > score(current.get("name", "")):
+            cur = picked.get(vid)
+            if cur is None or score(name) > score(cur.get("name", "")):
               picked[vid] = {
                 "id": vid,
                 "chip": chip,
@@ -141,10 +144,23 @@ jobs:
           if not picked:
             raise SystemExit("No recognized ESP32 variants in release assets.")
 
+          # Download selected BINs into docs/firmware (same-origin for Pages -> no CORS issues)
+          for vid in picked:
+            item = picked[vid]
+            out_path = fwdir / item["name"]
+            url = item["url"]
+
+            # Use curl with -L to follow redirects (GitHub release -> CDN)
+            cmd = ["curl", "-L", "-f", "-sS", "-o", str(out_path), url]
+            print("Downloading:", url, "->", out_path)
+            subprocess.check_call(cmd)
+
           variants = []
           for vid in sorted(picked.keys()):
             item = picked[vid]
             manifest_name = f"manifest-bambu-{vid}.json"
+            local_bin_path = f"./firmware/{item['name']}"
+
             manifest = {
               "name": "BambuBeacon",
               "new_install_prompt_erase": True,
@@ -153,7 +169,7 @@ jobs:
                   "chipFamily": item["chip"],
                   "parts": [
                     {
-                      "path": item["url"],
+                      "path": local_bin_path,
                       "offset": 0
                     }
                   ]
@@ -161,19 +177,20 @@ jobs:
               ]
             }
             (docs / manifest_name).write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
             variants.append({
               "id": item["id"],
               "name": item["title"],
               "chipFamily": item["chip"],
               "description": item["desc"],
               "version": item["version"] or "unbekannt",
-              "manifest": manifest_name,
-              "binary": item["url"],
+              "manifest": f"./{manifest_name}",
+              "binary": local_bin_path,
               "available": True
             })
 
           (docs / "variants.json").write_text(json.dumps({"variants": variants}, indent=2), encoding="utf-8")
-          print(f"Wrote {len(variants)} variants.")
+          print(f"Wrote {len(variants)} variants and downloaded {len(picked)} BINs.")
           PY
 
       - name: Commit docs updates
@@ -182,10 +199,8 @@ jobs:
             echo "No changes to commit."
             exit 0
           fi
-          git fetch origin main
-          git checkout -B main origin/main
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/variants.json docs/manifest-bambu-*.json
-          git commit -m "Update web flasher manifests for release"
+          git add docs/variants.json docs/manifest-bambu-*.json docs/firmware/*.bin
+          git commit -m "Update web flasher manifests + firmware"
           git push
