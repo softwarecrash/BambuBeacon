@@ -27,11 +27,37 @@ void GitHubOtaUpdater::begin() {
   }
 }
 
+void GitHubOtaUpdater::setUpdateActivityCallback(std::function<void(bool active)> cb) {
+  _updateActivityCb = cb;
+}
+
 bool GitHubOtaUpdater::isBusy() const {
   lock();
   const bool busy = (_state == State::Checking || _state == State::Downloading);
   unlock();
   return busy;
+}
+
+bool GitHubOtaUpdater::isUpdateAvailable() const {
+  lock();
+  const bool available = (_state == State::UpdateAvailable);
+  unlock();
+  return available;
+}
+
+bool GitHubOtaUpdater::takeLastCheckResult(bool* netFail) {
+  bool done = false;
+  bool nf = false;
+  lock();
+  if (_lastCheckDone) {
+    done = true;
+    nf = _lastCheckNetFail;
+    _lastCheckDone = false;
+    _lastCheckNetFail = false;
+  }
+  unlock();
+  if (netFail) *netFail = nf;
+  return done;
 }
 
 bool GitHubOtaUpdater::requestCheck() {
@@ -143,8 +169,16 @@ void GitHubOtaUpdater::downloadTask(void* param) {
 }
 
 void GitHubOtaUpdater::doCheck() {
+  auto finishCheck = [&](bool netFail) {
+    lock();
+    _lastCheckDone = true;
+    _lastCheckNetFail = netFail;
+    unlock();
+  };
+
   if (WiFi.status() != WL_CONNECTED) {
     setState(State::Error, "WiFi not connected");
+    finishCheck(true);
     return;
   }
 
@@ -160,6 +194,7 @@ void GitHubOtaUpdater::doCheck() {
 
   if (!http.begin(client, url)) {
     setState(State::Error, "Failed to connect to GitHub");
+    finishCheck(true);
     return;
   }
 
@@ -167,6 +202,7 @@ void GitHubOtaUpdater::doCheck() {
   if (code != 200) {
     http.end();
     setState(State::Error, "GitHub HTTP " + String(code));
+    finishCheck(code <= 0);
     return;
   }
 
@@ -175,6 +211,7 @@ void GitHubOtaUpdater::doCheck() {
   http.end();
   if (err) {
     setState(State::Error, "Release JSON parse error");
+    finishCheck(false);
     return;
   }
 
@@ -182,6 +219,7 @@ void GitHubOtaUpdater::doCheck() {
   const String latest = normalizeVersion(tag);
   if (!latest.length()) {
     setState(State::Error, "Missing release version");
+    finishCheck(false);
     return;
   }
 
@@ -192,6 +230,7 @@ void GitHubOtaUpdater::doCheck() {
   const int cmp = compareVersions(latest, _currentVersion);
   if (cmp <= 0) {
     setState(State::UpToDate, "");
+    finishCheck(false);
     return;
   }
 
@@ -210,10 +249,12 @@ void GitHubOtaUpdater::doCheck() {
     _assetUrl = url;
     unlock();
     setState(State::UpdateAvailable, "");
+    finishCheck(false);
     return;
   }
 
   setState(State::Error, "No matching asset for build");
+  finishCheck(false);
 }
 
 void GitHubOtaUpdater::doDownload() {
@@ -221,6 +262,23 @@ void GitHubOtaUpdater::doDownload() {
     setState(State::Error, "WiFi not connected");
     return;
   }
+
+  struct ScopedActivity {
+    std::function<void(bool active)>* cb = nullptr;
+    bool active = false;
+    explicit ScopedActivity(std::function<void(bool active)>* inCb) : cb(inCb) {}
+    void start() {
+      if (cb && *cb) {
+        (*cb)(true);
+        active = true;
+      }
+    }
+    ~ScopedActivity() {
+      if (active && cb && *cb) {
+        (*cb)(false);
+      }
+    }
+  };
 
   String url;
   lock();
@@ -230,6 +288,9 @@ void GitHubOtaUpdater::doDownload() {
     setState(State::Error, "Missing asset URL");
     return;
   }
+
+  ScopedActivity activity(&_updateActivityCb);
+  activity.start();
 
   WiFiClientSecure client;
   client.setInsecure();

@@ -165,6 +165,7 @@ private:
   static const uint16_t kPort = 8883;
   static const char*    kUser;
   static const size_t   kMqttBufferSize = 32768;
+  static const size_t   kMqttHeapSafety = 12 * 1024;
 
   String _serverUri;
   String _topicReport;
@@ -208,6 +209,10 @@ private:
   size_t _rxLen = 0;
   size_t _rxExpected = 0;
   bool _rxTopicMatch = false;
+  size_t _maxPayloadSeen = 0;
+  size_t _maxPayloadDropped = 0;
+  uint32_t _droppedOversize = 0;
+  uint32_t _droppedAlloc = 0;
 
 #if defined(ARDUINO_ARCH_ESP32)
   bool _certFetchInProgress = false;

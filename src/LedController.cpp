@@ -155,6 +155,13 @@ void LedController::setDownloadProgress(uint8_t percent) {
   }
 }
 
+void LedController::setUpdateAvailable(bool available) {
+  if (_st.updateAvailable != available) {
+    _st.updateAvailable = available;
+    markDirty();
+  }
+}
+
 void LedController::setThermalState(bool heating, bool cooling) {
   if (_st.heating != heating || _st.cooling != cooling) {
     _st.heating = heating;
@@ -198,6 +205,7 @@ void LedController::setTestMode(bool enabled) {
     _test.hmsSev = 0;
     _test.printProgress = 255;
     _test.downloadProgress = 255;
+    _test.updateAvailable = false;
     _test.heating = false;
     _test.cooling = false;
     _test.paused = false;
@@ -274,6 +282,12 @@ void LedController::testSetDownloadProgress(uint8_t percent) {
   if (!_testMode) return;
   if (percent > 100) percent = 100;
   _test.downloadProgress = percent;
+  markDirty();
+}
+
+void LedController::testSetUpdateAvailable(bool available) {
+  if (!_testMode) return;
+  _test.updateAvailable = available;
   markDirty();
 }
 
@@ -532,6 +546,14 @@ void LedController::render(uint32_t nowMs) {
       for (uint16_t i = 0; i < _perSeg && i < lit; i++) {
         _leds[segStart(2) + i] = CRGB::Green;
       }
+    } else if (st.updateAvailable) {
+      const uint16_t base = segStart(2);
+      const uint16_t pos = 0;
+      uint8_t pulse = sin8((nowMs / 20) & 0xFF);
+      uint8_t level = scale8(pulse, 70) + 8;
+      CRGB c = CRGB(0, 160, 160);
+      c.nscale8_video(level);
+      _leds[base + pos] = c;
     }
   }
 

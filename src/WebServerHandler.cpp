@@ -317,6 +317,9 @@ void WebServerHandler::handleLedTestCmd(AsyncWebServerRequest* req) {
     if (v < 0) v = 0;
     if (v > 100) v = 100;
     ledsCtrl.testSetDownloadProgress((uint8_t)v);
+  } else if (action == "update") {
+    const bool available = (value == "1" || value == "true" || value == "on");
+    ledsCtrl.testSetUpdateAvailable(available);
   } else {
     req->send(400, "application/json", "{\"success\":false}");
     return;
@@ -491,12 +494,18 @@ void WebServerHandler::begin() {
     }
   );
 
+  static bool mqttPausedForUpdate = false;
+
   server.on("/update", HTTP_POST,
     [&](AsyncWebServerRequest* req) {
       if (!wifiManager.isApMode()) {
         if (!isAuthorized(req)) return req->requestAuthentication();
       }
       const bool ok = !Update.hasError();
+      if (!ok && mqttPausedForUpdate) {
+        mqttPausedForUpdate = false;
+        if (WiFi.status() == WL_CONNECTED) bambu.connect();
+      }
       req->send(ok ? 200 : 500, "application/json", ok ? "{\"success\":true}" : "{\"success\":false}");
       if (ok) scheduleRestart(2500);
     },
@@ -504,6 +513,11 @@ void WebServerHandler::begin() {
       (void)filename;
       if (!wifiManager.isApMode() && !isAuthorized(req)) return;
       if (index == 0) {
+        if (!mqttPausedForUpdate) {
+          bambu.disconnect();
+          mqttPausedForUpdate = true;
+          webSerial.println("[MQTT] Paused for OTA");
+        }
         if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
           Update.printError(webSerial);
         }
@@ -512,8 +526,13 @@ void WebServerHandler::begin() {
         Update.printError(webSerial);
       }
       if (final) {
-        if (!Update.end(true)) {
+        const bool ok = Update.end(true);
+        if (!ok) {
           Update.printError(webSerial);
+          if (mqttPausedForUpdate) {
+            mqttPausedForUpdate = false;
+            if (WiFi.status() == WL_CONNECTED) bambu.connect();
+          }
         }
       }
     }

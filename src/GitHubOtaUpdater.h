@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <functional>
 
 class GitHubOtaUpdater {
 public:
@@ -20,10 +21,13 @@ public:
                    const char* buildVariant);
 
   void begin();
+  void setUpdateActivityCallback(std::function<void(bool active)> cb);
   bool requestCheck();
   bool startUpdate();
   String statusJson() const;
   bool isBusy() const;
+  bool isUpdateAvailable() const;
+  bool takeLastCheckResult(bool* netFail);
 
 private:
   static void checkTask(void* param);
@@ -50,6 +54,9 @@ private:
   String _assetUrl;
   String _assetName;
   String _lastError;
+  std::function<void(bool active)> _updateActivityCb;
+  bool _lastCheckDone = false;
+  bool _lastCheckNetFail = false;
 
   uint32_t _bytesTotal = 0;
   uint32_t _bytesDone = 0;

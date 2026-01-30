@@ -152,6 +152,7 @@
     }
 
     let otaSuccessRedirected = false;
+    let otaRebootWatch = null;
     function updateOtaUi(j) {
       if (!j) return;
       const updateBtn = document.getElementById("otaUpdateBtn");
@@ -177,7 +178,28 @@
         if (!otaSuccessRedirected) {
           otaSuccessRedirected = true;
           setOtaProgress(100, j.bytesTotal || j.bytesDone || 0, j.bytesTotal || j.bytesDone || 0);
-          setTimeout(() => { location.href = "/"; }, 1200);
+          const start = Date.now();
+          let sawDown = false;
+          otaRebootWatch = setInterval(async () => {
+            if (Date.now() - start > 20000) {
+              clearInterval(otaRebootWatch);
+              location.href = "/";
+              return;
+            }
+            try {
+              const res = await fetch("/info.json", { cache: "no-store" });
+              if (res.ok) {
+                if (sawDown) {
+                  clearInterval(otaRebootWatch);
+                  location.href = "/";
+                }
+              } else {
+                sawDown = true;
+              }
+            } catch {
+              sawDown = true;
+            }
+          }, 1000);
         }
       } else if (state === "error") {
         updateBtn.textContent = err ? "Update error" : "Update failed";
@@ -335,8 +357,15 @@
     });
   </script>
   <script>
-    (function () {
-      fetchOtaStatus();
+    (async function () {
+      try {
+        const res = await fetch("/ota/status", { cache: "no-store" });
+        if (res.ok) {
+          const j = await res.json();
+          updateOtaUi(j);
+          if (j && j.state === "update_available") return;
+        }
+      } catch {}
       requestOtaCheck();
     })();
   </script>

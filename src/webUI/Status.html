@@ -15,6 +15,13 @@
       <h1>BambuBeacon</h1>
     </div>
 
+    <div class="panel" id="updateNotice" style="display:none;">
+      <div class="panel-title">Update available</div>
+      <div class="button-stack actions">
+        <button class="btn" id="updateNoticeBtn" onclick="location.href='/maintenance'">Open Maintenance</button>
+      </div>
+    </div>
+
     <div class="panel">
       <div class="panel-title">LED Brightness</div>
       <div class="slider-row">
@@ -59,6 +66,29 @@
       }
     }
     loadInfo();
+
+    async function loadUpdateNotice() {
+      try {
+        const r = await fetch("/ota/status", { cache: "no-store" });
+        if (!r.ok) return;
+        const j = await r.json();
+        if (j && j.state === "update_available") {
+          const panel = document.getElementById("updateNotice");
+          const btn = document.getElementById("updateNoticeBtn");
+          const cur = j.current || "";
+          const latest = j.latest || "";
+          if (cur && latest) {
+            btn.textContent = `Update ${cur} → ${latest} available`;
+          } else if (latest) {
+            btn.textContent = `Update to ${latest} available`;
+          } else {
+            btn.textContent = "Update available";
+          }
+          panel.style.display = "";
+        }
+      } catch {}
+    }
+    loadUpdateNotice();
 
     const ledSlider = document.getElementById("ledBrightness");
     const ledValue = document.getElementById("ledBrightnessValue");

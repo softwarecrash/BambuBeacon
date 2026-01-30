@@ -1,6 +1,7 @@
 #include "BambuMqttClient.h"
 #include <mbedtls/pem.h>
 #include <mbedtls/x509_crt.h>
+#include <new>
 
 namespace {
 constexpr uint32_t kSocketTimeoutMs = 5000;
@@ -474,15 +475,51 @@ bool BambuMqttClient::handleMqttData(esp_mqtt_event_handle_t event) {
 
     if (!_rxTopicMatch) return false;
 
-    if (event->total_data_len <= 0 || event->total_data_len > (int)kMqttBufferSize) {
+    if (event->total_data_len <= 0) {
       _rxTopicMatch = false;
       return false;
     }
 
     _rxExpected = (size_t)event->total_data_len;
-    _rxBuf = new uint8_t[_rxExpected];
-    if (!_rxBuf) {
+    if (_rxExpected > _maxPayloadSeen) _maxPayloadSeen = _rxExpected;
+
+    size_t maxAllowed = kMqttBufferSize;
+#if defined(ARDUINO_ARCH_ESP32)
+    size_t freeHeap = ESP.getFreeHeap();
+    if (freeHeap > kMqttHeapSafety) {
+      const size_t heapCap = freeHeap - kMqttHeapSafety;
+      if (heapCap < maxAllowed) maxAllowed = heapCap;
+    } else {
+      maxAllowed = 0;
+    }
+#endif
+    if (_rxExpected == 0 || _rxExpected > maxAllowed) {
+      _droppedOversize++;
+      if (_rxExpected > _maxPayloadDropped) _maxPayloadDropped = _rxExpected;
+#if defined(ARDUINO_ARCH_ESP32)
+      webSerial.printf("[MQTT] Drop payload len=%u max=%u free=%u\n",
+                       (unsigned)_rxExpected, (unsigned)maxAllowed, (unsigned)freeHeap);
+#else
+      webSerial.printf("[MQTT] Drop payload len=%u max=%u\n",
+                       (unsigned)_rxExpected, (unsigned)maxAllowed);
+#endif
       _rxTopicMatch = false;
+      _rxExpected = 0;
+      return false;
+    }
+
+    _rxBuf = new (std::nothrow) uint8_t[_rxExpected];
+    if (!_rxBuf) {
+      _droppedAlloc++;
+#if defined(ARDUINO_ARCH_ESP32)
+      webSerial.printf("[MQTT] Drop payload len=%u (alloc failed, free=%u)\n",
+                       (unsigned)_rxExpected, (unsigned)ESP.getFreeHeap());
+#else
+      webSerial.printf("[MQTT] Drop payload len=%u (alloc failed)\n",
+                       (unsigned)_rxExpected);
+#endif
+      _rxTopicMatch = false;
+      _rxExpected = 0;
       return false;
     }
   }
