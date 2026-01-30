@@ -113,8 +113,7 @@ void LedController::applySettingsFrom(Settings& settings) {
   }
 }
 
-void LedController::ingestBambuReport(JsonObjectConst report, uint32_t nowMs) {
-  (void)report;
+void LedController::ingestBambuReport(uint32_t nowMs) {
   _st.hasMqtt = true;
   _st.lastMqttMs = nowMs;
   markDirty();
@@ -363,12 +362,6 @@ void LedController::tickBootTest(uint32_t nowMs) {
 }
 
 /* ================= Core ================= */
-
-void LedController::deriveStateFromReport(JsonObjectConst report, uint32_t nowMs) {
-  (void)report;
-  _st.hasMqtt = true;
-  _st.lastMqttMs = nowMs;
-}
 
 void LedController::render(uint32_t nowMs) {
   const uint32_t MQTT_STALE_MS = 15000;

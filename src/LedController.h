@@ -2,7 +2,6 @@
 
 #include <Arduino.h>
 #include <FastLED.h>
-#include <ArduinoJson.h>
 
 class Settings;
 
@@ -15,7 +14,7 @@ public:
   void loop();
 
   void applySettingsFrom(Settings& settings);
-  void ingestBambuReport(JsonObjectConst report, uint32_t nowMs);
+  void ingestBambuReport(uint32_t nowMs);
   void setMqttConnected(bool connected, uint32_t nowMs);
   void setHmsSeverity(uint8_t sev);
   void setWifiConnected(bool connected);
@@ -92,7 +91,6 @@ private:
   void showIfDirty();
 
   void tick(uint32_t nowMs);
-  void deriveStateFromReport(JsonObjectConst report, uint32_t nowMs);
   void render(uint32_t nowMs);
 
 private:

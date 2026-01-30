@@ -33,8 +33,8 @@ void setup() {
   wifiManager.begin();
   web.begin();
 
-  bambu.onReport([](const JsonDocument& doc) {
-    ledsCtrl.ingestBambuReport(doc.as<JsonObjectConst>(), millis());
+  bambu.onReport([](uint32_t nowMs) {
+    ledsCtrl.ingestBambuReport(nowMs);
   });
  bambu.begin(settings);
 
@@ -59,7 +59,7 @@ void loop() {
   ledsCtrl.setHmsSeverity((uint8_t)bambu.topSeverity());
   ledsCtrl.setWifiConnected(WiFi.status() == WL_CONNECTED);
 
-  const String& gstate = bambu.gcodeState();
+  const String gstate = bambu.gcodeState();
   const bool finished = (gstate == "FINISH" || gstate == "FINISHED" || gstate == "DONE");
   const bool paused = (gstate == "PAUSE" || gstate == "PAUSED");
   const bool printing = (gstate == "RUNNING" || gstate == "PRINTING" || paused || gstate == "PREPARE");

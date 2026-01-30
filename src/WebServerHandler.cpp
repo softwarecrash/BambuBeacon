@@ -217,12 +217,21 @@ void WebServerHandler::handleSubmitPrinterConfig(AsyncWebServerRequest* req) {
     return req->getParam(name, true)->value();
   };
 
+  const String oldIp = settings.get.printerIP() ? settings.get.printerIP() : "";
+  const String oldUsn = settings.get.printerUSN() ? settings.get.printerUSN() : "";
+
   const uint16_t oldSeg = settings.get.LEDSegments();
   const uint16_t oldPer = settings.get.LEDperSeg();
 
-  settings.set.printerIP(getP("printerip"));
-  settings.set.printerUSN(getP("printerusn"));
+  const String newIp = getP("printerip");
+  const String newUsn = getP("printerusn");
+  settings.set.printerIP(newIp);
+  settings.set.printerUSN(newUsn);
   settings.set.printerAC(getP("printerac"));
+
+  if (newIp != oldIp || newUsn != oldUsn) {
+    settings.set.printerCert("");
+  }
 
   if (req->hasParam("ledsegments", true)) {
     long v = getP("ledsegments").toInt();
