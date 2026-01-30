@@ -3,11 +3,20 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ArduinoJson.h>
+#include <functional>
 #include <WebSerial.h>
 #include <WiFiClientSecure.h>
-#include <PubSubClient.h>
+#include <mqtt_client.h>
+#include <time.h>
 
 #include "SettingsPrefs.h"  // provides Settings + settings.get.printerIP/printerUSN/printerAC
+
+#if defined(ARDUINO_ARCH_ESP32)
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/semphr.h>
+#include <freertos/task.h>
+#endif
 
 class BambuMqttClient {
 public:
@@ -33,7 +42,7 @@ public:
     bool active = false;
   };
 
-  using ReportCallback = std::function<void(const JsonDocument& doc)>;
+  using ReportCallback = std::function<void(uint32_t nowMs)>;
 
   BambuMqttClient();
   ~BambuMqttClient();
@@ -51,7 +60,6 @@ public:
 
   bool publishRequest(const JsonDocument& doc, bool retain = false);
   void onReport(ReportCallback cb);
-  void handleMqttMessage(char* topic, uint8_t* payload, unsigned int length);
 
   // HMS / status
   Severity topSeverity() const;
@@ -60,7 +68,7 @@ public:
   uint16_t countActiveTotal() const;
   size_t getActiveEvents(HmsEvent* out, size_t maxOut) const;
 
-  const String& gcodeState() const;
+  String gcodeState() const;
   uint8_t printProgress() const;
   uint8_t downloadProgress() const;
   float bedTemp() const;
@@ -78,14 +86,57 @@ public:
   void reloadFromSettings();
 
 private:
+  struct ParsedHmsEntry {
+    uint32_t attr = 0;
+    uint32_t code = 0;
+  };
+
+  struct ParsedReport {
+    bool hasGcodeState = false;
+    char gcodeState[32] = {0};
+    bool hasPrintProgress = false;
+    uint8_t printProgress = 255;
+    bool hasDownloadProgress = false;
+    uint8_t downloadProgress = 255;
+    bool hasBed = false;
+    float bedTemp = 0.0f;
+    float bedTarget = 0.0f;
+    bool hasNozzleTemp = false;
+    float nozzleTemp = 0.0f;
+    bool hasNozzleTarget = false;
+    float nozzleTarget = 0.0f;
+    bool nozzleHeating = false;
+    bool hmsPresent = false;
+    uint8_t hmsCount = 0;
+    ParsedHmsEntry hms[20];
+    uint32_t nowMs = 0;
+  };
+
+  struct RawMsg {
+    uint8_t* payload = nullptr;
+    size_t length = 0;
+  };
+
   void buildFromSettings();
   bool configLooksValid() const;
 
   void subscribeReportOnce();
   void handleReportJson(const uint8_t* payload, size_t length);
+  static esp_err_t mqttEventHandler(esp_mqtt_event_handle_t event);
+  esp_err_t handleEvent(esp_mqtt_event_handle_t event);
+  bool topicMatches(const char* topic, int topicLen) const;
+  bool handleMqttData(esp_mqtt_event_handle_t event);
+  bool initClientFromSettings();
+  void resetClient();
+  bool timeIsValid() const;
+#if defined(ARDUINO_ARCH_ESP32)
+  void ensureTimeSync();
+  void fetchCertSync(const char* reason);
+#endif
+  bool parseReportJson(const uint8_t* payload, size_t length, ParsedReport& out);
+  void applyParsedReport(const ParsedReport& report);
   void logStatusIfNeeded(uint32_t nowMs);
 
-  void parseHmsFromDoc(JsonDocument& doc);
   JsonArray findHmsArray(JsonDocument& doc);
   bool isIgnored(const char* codeStr) const;
 
@@ -99,10 +150,10 @@ private:
 private:
   Settings *_settings = nullptr;
 
-  WiFiClientSecure _net;
-  PubSubClient _mqtt;
+  esp_mqtt_client_handle_t _client = nullptr;
+  bool _clientStarted = false;
+  bool _connected = false;
   bool _subscribed = false;
-  uint32_t _lastKickMs = 0;
 
   // Derived config (always from settings)
   String _printerIP;
@@ -152,4 +203,33 @@ private:
   uint32_t _lastReportLogMs = 0;
 
   ReportCallback _reportCb;
+
+  uint8_t* _rxBuf = nullptr;
+  size_t _rxLen = 0;
+  size_t _rxExpected = 0;
+  bool _rxTopicMatch = false;
+
+#if defined(ARDUINO_ARCH_ESP32)
+  bool _certFetchInProgress = false;
+  bool _certPendingSave = false;
+  bool _pendingClientReset = false;
+  bool _clearStoredCert = false;
+  bool _timeSyncStarted = false;
+  bool _timeSyncOk = false;
+  uint32_t _lastCertFetchMs = 0;
+  char* _fetchedCert = nullptr;
+  size_t _fetchedCertLen = 0;
+#endif
+
+#if defined(ARDUINO_ARCH_ESP32)
+  static void parserTaskThunk(void* arg);
+  void parserTask();
+
+  QueueHandle_t _parseQueue = nullptr;
+  SemaphoreHandle_t _pendingMutex = nullptr;
+  TaskHandle_t _parserTask = nullptr;
+  ParsedReport _pendingReport;
+  bool _pendingReady = false;
+  uint32_t _droppedMsgs = 0;
+#endif
 };
