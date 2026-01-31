@@ -427,7 +427,6 @@ void LedController::render(uint32_t nowMs) {
 
   if (!_testMode && _idleTimeoutMin > 0) {
     const bool active =
-      (st.hmsSev >= 2) ||
       st.finished ||
       st.heating ||
       st.cooling ||
