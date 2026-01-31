@@ -655,6 +655,61 @@ void WebServerHandler::begin() {
     req->send(200, "application/json", "{\"success\":true}");
   });
 
+  server.on("/hms.json", HTTP_GET, [&](AsyncWebServerRequest* req) {
+    if (!wifiManager.isApMode()) {
+      if (!isAuthorized(req)) return req->requestAuthentication();
+    }
+
+    JsonDocument doc;
+    BambuMqttClient::HmsEvent events[20];
+    const size_t n = bambu.getActiveEvents(events, 20);
+    if (n == 0) {
+      doc["present"] = false;
+    } else {
+      size_t best = 0;
+      for (size_t i = 1; i < n; i++) {
+        if ((uint8_t)events[i].severity > (uint8_t)events[best].severity) {
+          best = i;
+        } else if (events[i].severity == events[best].severity &&
+                   events[i].lastSeenMs > events[best].lastSeenMs) {
+          best = i;
+        }
+      }
+      doc["present"] = true;
+      doc["code"] = events[best].codeStr;
+      doc["severity"] = (uint8_t)events[best].severity;
+      doc["count"] = (uint32_t)events[best].count;
+    }
+    String out;
+    serializeJson(doc, out);
+    req->send(200, "application/json", out);
+  });
+
+  server.on("/hmsignore/add", HTTP_POST, [&](AsyncWebServerRequest* req) {
+    if (!wifiManager.isApMode()) {
+      if (!isAuthorized(req)) return req->requestAuthentication();
+    }
+    String code = req->hasParam("code", true) ? req->getParam("code", true)->value() : "";
+    code.trim();
+    code.toUpperCase();
+    if (!code.length()) {
+      return req->send(400, "application/json", "{\"success\":false}");
+    }
+    String current = settings.get.hmsIgnore();
+    String currentUpper = current;
+    currentUpper.toUpperCase();
+    if (currentUpper.indexOf(code) < 0) {
+      if (current.length() && current[current.length() - 1] != '\n') current += "\n";
+      current += code;
+      current += "\n";
+      settings.set.hmsIgnore(current);
+      settings.save();
+      bambu.reloadFromSettings();
+      if (WiFi.status() == WL_CONNECTED) bambu.connect();
+    }
+    req->send(200, "application/json", "{\"success\":true}");
+  });
+
   server.on("/ledconf.json", HTTP_GET, [&](AsyncWebServerRequest* req) {
     if (!wifiManager.isApMode()) {
       if (!isAuthorized(req)) return req->requestAuthentication();
