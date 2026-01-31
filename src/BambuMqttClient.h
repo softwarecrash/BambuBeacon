@@ -2,7 +2,6 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
-#include <ArduinoJson.h>
 #include <functional>
 #include <WebSerial.h>
 #include <WiFiClientSecure.h>
@@ -11,12 +10,10 @@
 
 #include "SettingsPrefs.h"  // provides Settings + settings.get.printerIP/printerUSN/printerAC
 
-#if defined(ARDUINO_ARCH_ESP32)
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
-#endif
 
 class BambuMqttClient {
 public:
@@ -112,16 +109,117 @@ private:
     uint32_t nowMs = 0;
   };
 
-  struct RawMsg {
-    uint8_t* payload = nullptr;
-    size_t length = 0;
+  struct StreamParser {
+    void reset();
+    bool feed(const uint8_t* data, size_t len);
+    bool finish(ParsedReport& out);
+
+  private:
+    enum class KeyId : uint8_t {
+      Root,
+      Print,
+      GcodeState,
+      McPercent,
+      Percent,
+      DownloadProgress,
+      DownloadPercent,
+      DlPercent,
+      DlProgress,
+      PreparePer,
+      GcodeFilePreparePercent,
+      BedTemper,
+      BedTemperature,
+      BedTargetTemper,
+      BedTargetTemperature,
+      NozzleTemper,
+      NozzleTargetTemper,
+      Device,
+      Extruder,
+      Info,
+      Hnow,
+      Htar,
+      Temp,
+      Hms,
+      Attr,
+      Code,
+      Data,
+      Unknown
+    };
+
+    enum class Mode : uint8_t {
+      Default,
+      InStringKey,
+      InStringVal,
+      InNumber,
+      InLiteral
+    };
+
+    struct Ctx {
+      bool isArray = false;
+      bool expectingKey = false;
+      bool expectingValue = false;
+      KeyId key = KeyId::Unknown;
+      bool isHmsArray = false;
+      bool isExtruderInfoArray = false;
+      bool isHmsItem = false;
+      int index = -1;
+    };
+
+    static KeyId keyIdFromString(const char* s, size_t len);
+
+    void pushObject();
+    void pushArray();
+    void popContext();
+    void valueCompleted();
+    KeyId parentKey() const;
+    KeyId grandParentKey() const;
+    int currentExtruderInfoIndex() const;
+    bool inExtruderInfoArray() const;
+    bool inHmsItem() const;
+
+    void handleValueString(const char* s, size_t len);
+    void handleValueNumber(const char* s, size_t len);
+    void handleValueLiteral(const char* s, size_t len);
+    bool parseInt(const char* s, size_t len, int& out) const;
+    bool parseFloat(const char* s, size_t len, float& out) const;
+    bool isNumberChar(char c) const;
+    void addHmsIfReady();
+
+    Mode _mode = Mode::Default;
+    bool _escape = false;
+    char _strBuf[48] = {0};
+    size_t _strLen = 0;
+    char _numBuf[32] = {0};
+    size_t _numLen = 0;
+    char _litBuf[8] = {0};
+    size_t _litLen = 0;
+    KeyId _currentKey = KeyId::Unknown;
+    bool _error = false;
+
+    Ctx _stack[10];
+    int _depth = 0;
+
+    ParsedReport _report;
+    bool _bedOk = false;
+    bool _bedTargetOk = false;
+    float _bedTemp = 0.0f;
+    float _bedTarget = 0.0f;
+    bool _nozOk = false;
+    bool _nozTargetOk = false;
+    float _nozTemp = 0.0f;
+    float _nozTarget = 0.0f;
+    bool _nozzleHeatingCandidate = false;
+    bool _hmsArraySeen = false;
+    uint32_t _hmsAttr = 0;
+    uint32_t _hmsCode = 0;
+    bool _hmsAttrSet = false;
+    bool _hmsCodeSet = false;
   };
 
   void buildFromSettings();
   bool configLooksValid() const;
 
   void subscribeReportOnce();
-  void handleReportJson(const uint8_t* payload, size_t length);
   static esp_err_t mqttEventHandler(esp_mqtt_event_handle_t event);
   esp_err_t handleEvent(esp_mqtt_event_handle_t event);
   bool topicMatches(const char* topic, int topicLen) const;
@@ -129,15 +227,10 @@ private:
   bool initClientFromSettings();
   void resetClient();
   bool timeIsValid() const;
-#if defined(ARDUINO_ARCH_ESP32)
   void ensureTimeSync();
   void fetchCertSync(const char* reason);
-#endif
-  bool parseReportJson(const uint8_t* payload, size_t length, ParsedReport& out);
   void applyParsedReport(const ParsedReport& report);
   void logStatusIfNeeded(uint32_t nowMs);
-
-  JsonArray findHmsArray(JsonDocument& doc);
   bool isIgnored(const char* codeStr) const;
 
   static Severity severityFromCode(uint32_t code);
@@ -202,19 +295,17 @@ private:
   uint32_t _lastMsgLen = 0;
   uint32_t _lastMqttDebugMs = 0;
   uint32_t _lastReportLogMs = 0;
+  uint8_t _parseOk = 0;
+  uint8_t _parseFail = 0;
+  uint32_t _lastParseLogMs = 0;
 
   ReportCallback _reportCb;
 
-  uint8_t* _rxBuf = nullptr;
-  size_t _rxLen = 0;
+  StreamParser _streamParser;
   size_t _rxExpected = 0;
+  size_t _rxReceived = 0;
   bool _rxTopicMatch = false;
-  size_t _maxPayloadSeen = 0;
-  size_t _maxPayloadDropped = 0;
-  uint32_t _droppedOversize = 0;
-  uint32_t _droppedAlloc = 0;
 
-#if defined(ARDUINO_ARCH_ESP32)
   bool _certFetchInProgress = false;
   bool _certPendingSave = false;
   bool _pendingClientReset = false;
@@ -224,17 +315,8 @@ private:
   uint32_t _lastCertFetchMs = 0;
   char* _fetchedCert = nullptr;
   size_t _fetchedCertLen = 0;
-#endif
 
-#if defined(ARDUINO_ARCH_ESP32)
-  static void parserTaskThunk(void* arg);
-  void parserTask();
-
-  QueueHandle_t _parseQueue = nullptr;
   SemaphoreHandle_t _pendingMutex = nullptr;
-  TaskHandle_t _parserTask = nullptr;
   ParsedReport _pendingReport;
   bool _pendingReady = false;
-  uint32_t _droppedMsgs = 0;
-#endif
 };

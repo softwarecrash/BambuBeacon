@@ -155,6 +155,21 @@ void LedController::setDownloadProgress(uint8_t percent) {
   }
 }
 
+void LedController::setOtaProgress(uint8_t percent) {
+  if (_st.otaProgress != percent) {
+    _st.otaProgress = percent;
+    markDirty();
+  }
+}
+
+void LedController::setOtaProgressManual(bool active, uint8_t percent) {
+  if (_st.otaProgressManualActive != active || _st.otaProgressManual != percent) {
+    _st.otaProgressManualActive = active;
+    _st.otaProgressManual = percent;
+    markDirty();
+  }
+}
+
 void LedController::setUpdateAvailable(bool available) {
   if (_st.updateAvailable != available) {
     _st.updateAvailable = available;
@@ -205,6 +220,9 @@ void LedController::setTestMode(bool enabled) {
     _test.hmsSev = 0;
     _test.printProgress = 255;
     _test.downloadProgress = 255;
+    _test.otaProgress = 255;
+    _test.otaProgressManual = 255;
+    _test.otaProgressManualActive = false;
     _test.updateAvailable = false;
     _test.heating = false;
     _test.cooling = false;
@@ -381,6 +399,26 @@ void LedController::render(uint32_t nowMs) {
   const uint32_t MQTT_STALE_MS = 15000;
   RenderState& st = _testMode ? _test : _st;
   const bool mqttOk = st.hasMqtt && (_testMode || (uint32_t)(nowMs - st.lastMqttMs) <= MQTT_STALE_MS);
+
+  uint8_t otaPct = 255;
+  if (st.otaProgressManualActive) {
+    otaPct = st.otaProgressManual;
+  } else if (st.otaProgress <= 100) {
+    otaPct = st.otaProgress;
+  }
+
+  if (otaPct <= 100 && _segments > 0 && _perSeg > 0) {
+    clear(false);
+    const uint16_t totalLeds = (uint16_t)_segments * _perSeg;
+    const uint16_t lit = (uint32_t)totalLeds * otaPct / 100;
+    CRGB c = CRGB(0, 160, 160);
+    for (uint16_t i = 0; i < lit && i < _count; i++) {
+      const uint16_t idx = (uint16_t)(_count - 1 - i);
+      _leds[idx] = c;
+    }
+    markDirty();
+    return;
+  }
 
   if (!mqttOk) {
     setNoConnection();

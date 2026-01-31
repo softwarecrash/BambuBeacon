@@ -57,6 +57,15 @@
     </div>
 
     <div class="panel">
+      <div class="panel-title">HMS Ignore List</div>
+      <div class="inline-info">One HMS code per line. Example: HMS_0001_0002_0003_0004</div>
+      <textarea id="hmsIgnore" rows="6" style="width:100%;margin-top:8px;"></textarea>
+      <div class="button-stack actions">
+        <button type="button" class="btn btn-outline" id="hmsIgnoreSaveBtn">Save HMS Ignore List</button>
+      </div>
+    </div>
+
+    <div class="panel">
       <div class="panel-title">Config Backup / Restore</div>
 
       <div class="button-stack">
@@ -85,7 +94,8 @@
 
   <script src="/backgroundCanvas.js"></script>
   <script>
-    function alertToast(type, message) {
+    let toastHold = false;
+    function alertToast(type, message, hold = false) {
       const toast = document.getElementById("toast");
       const icon = document.getElementById("toast-icon");
       const msg  = document.getElementById("toast-msg");
@@ -105,7 +115,14 @@
       icon.textContent = iconChar;
       msg.textContent = message;
       toast.classList.add("show");
-      setTimeout(() => toast.classList.remove("show"), 3000);
+      if (hold) {
+        toastHold = true;
+      } else {
+        toastHold = false;
+        setTimeout(() => {
+          if (!toastHold) toast.classList.remove("show");
+        }, 3000);
+      }
     }
 
     function formatBytes(bytes) {
@@ -153,6 +170,33 @@
 
     let otaSuccessRedirected = false;
     let otaRebootWatch = null;
+    function startRebootWatch() {
+      if (otaRebootWatch) return;
+      const start = Date.now();
+      let sawDown = false;
+      otaRebootWatch = setInterval(async () => {
+        if (Date.now() - start > 20000) {
+          clearInterval(otaRebootWatch);
+          otaRebootWatch = null;
+          location.href = "/";
+          return;
+        }
+        try {
+          const res = await fetch("/info.json", { cache: "no-store" });
+          if (res.ok) {
+            if (sawDown) {
+              clearInterval(otaRebootWatch);
+              otaRebootWatch = null;
+              location.href = "/";
+            }
+          } else {
+            sawDown = true;
+          }
+        } catch {
+          sawDown = true;
+        }
+      }, 1000);
+    }
     function updateOtaUi(j) {
       if (!j) return;
       const updateBtn = document.getElementById("otaUpdateBtn");
@@ -178,28 +222,8 @@
         if (!otaSuccessRedirected) {
           otaSuccessRedirected = true;
           setOtaProgress(100, j.bytesTotal || j.bytesDone || 0, j.bytesTotal || j.bytesDone || 0);
-          const start = Date.now();
-          let sawDown = false;
-          otaRebootWatch = setInterval(async () => {
-            if (Date.now() - start > 20000) {
-              clearInterval(otaRebootWatch);
-              location.href = "/";
-              return;
-            }
-            try {
-              const res = await fetch("/info.json", { cache: "no-store" });
-              if (res.ok) {
-                if (sawDown) {
-                  clearInterval(otaRebootWatch);
-                  location.href = "/";
-                }
-              } else {
-                sawDown = true;
-              }
-            } catch {
-              sawDown = true;
-            }
-          }, 1000);
+          alertToast("success", "Update complete. Waiting for reboot...", true);
+          startRebootWatch();
         }
       } else if (state === "error") {
         updateBtn.textContent = err ? "Update error" : "Update failed";
@@ -272,8 +296,8 @@
         if (xhr.status === 200) {
           setFirmwareBusy(true);
           setProgress(100, file.size || 0, file.size || 0);
-          alertToast("success", "Firmware uploaded. Rebooting...");
-          setTimeout(() => { location.href = "/"; }, 1200);
+          alertToast("success", "Firmware uploaded. Waiting for reboot...", true);
+          startRebootWatch();
         } else {
           setFirmwareBusy(false);
           alertToast("error", "Firmware upload failed: " + xhr.status);
@@ -341,6 +365,34 @@
       startRestore(file);
     });
 
+    async function loadHmsIgnore() {
+      try {
+        const res = await fetch("/hmsignore.json", { cache: "no-store" });
+        if (!res.ok) return;
+        const j = await res.json();
+        document.getElementById("hmsIgnore").value = (j.hmsIgnore || "").trim();
+      } catch {}
+    }
+
+    document.getElementById("hmsIgnoreSaveBtn").addEventListener("click", async () => {
+      const v = document.getElementById("hmsIgnore").value || "";
+      const body = `hmsignore=${encodeURIComponent(v)}`;
+      try {
+        const res = await fetch("/setHmsIgnore", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body
+        });
+        if (res.ok) {
+          alertToast("success", "HMS ignore list saved.");
+        } else {
+          alertToast("error", "Save failed: " + res.status);
+        }
+      } catch {
+        alertToast("error", "Save failed.");
+      }
+    });
+
     document.getElementById("otaUpdateBtn").addEventListener("click", async () => {
       try {
         const res = await fetch("/ota/update", { method: "POST", cache: "no-store" });
@@ -358,6 +410,7 @@
   </script>
   <script>
     (async function () {
+      loadHmsIgnore();
       try {
         const res = await fetch("/ota/status", { cache: "no-store" });
         if (res.ok) {

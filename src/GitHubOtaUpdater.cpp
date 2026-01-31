@@ -45,6 +45,23 @@ bool GitHubOtaUpdater::isUpdateAvailable() const {
   return available;
 }
 
+uint8_t GitHubOtaUpdater::progressPercent() const {
+  lock();
+  const uint32_t total = _bytesTotal;
+  const uint32_t done = _bytesDone;
+  unlock();
+  if (total == 0) return 0;
+  const uint32_t pct = (done * 100ULL) / total;
+  return (uint8_t)((pct > 100) ? 100 : pct);
+}
+
+bool GitHubOtaUpdater::isDownloading() const {
+  lock();
+  const bool downloading = (_state == State::Downloading);
+  unlock();
+  return downloading;
+}
+
 bool GitHubOtaUpdater::takeLastCheckResult(bool* netFail) {
   bool done = false;
   bool nf = false;

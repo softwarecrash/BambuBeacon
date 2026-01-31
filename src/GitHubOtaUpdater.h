@@ -28,6 +28,8 @@ public:
   bool isBusy() const;
   bool isUpdateAvailable() const;
   bool takeLastCheckResult(bool* netFail);
+  uint8_t progressPercent() const;
+  bool isDownloading() const;
 
 private:
   static void checkTask(void* param);

@@ -32,10 +32,11 @@
   X(STRING, "device",   "printerIP",          printerIP,        "",          0,     0) \
   X(STRING, "device",   "printerAC",          printerAC,        "",          0,     0) \
   X(STRING, "device",   "printerCert",        printerCert,      "",          0,     0) \
+  X(STRING, "device",   "hmsIgnore",          hmsIgnore,        "",          0,     0) \
   X(UINT16, "device",   "LEDperSeg",          LEDperSeg,        12,          1,     64) \
   X(UINT16, "device",   "LEDSegments",        LEDSegments,      3,           2,     3) \
   X(UINT16, "device",   "LEDBrightness",      LEDBrightness,    50,         0,     255) \
-  X(UINT16, "device",   "LEDMaxCurrentmA",    LEDMaxCurrentmA,  500,       100,    5000) \
+  X(UINT16, "device",   "LEDMaxCurrentmA",    LEDMaxCurrentmA,  2200,       100,    5000) \
   X(BOOL,   "device",   "LEDReverseOrder",    LEDReverseOrder,  false,       0,     0) \
   X(UINT16, "device",   "idleTimeoutMin",     idleTimeoutMin,   15,          0,   240) \
   /* End of settings items */

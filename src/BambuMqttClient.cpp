@@ -1,7 +1,7 @@
 #include "BambuMqttClient.h"
 #include <mbedtls/pem.h>
 #include <mbedtls/x509_crt.h>
-#include <new>
+#include <ctype.h>
 
 namespace {
 constexpr uint32_t kSocketTimeoutMs = 5000;
@@ -16,33 +16,37 @@ const char* severityToStr(BambuMqttClient::Severity s) {
 }
 }
 
-const char* BambuMqttClient::kUser = "bblp";
-
-#if defined(ARDUINO_ARCH_ESP32)
-void BambuMqttClient::parserTaskThunk(void* arg) {
-  if (arg) {
-    static_cast<BambuMqttClient*>(arg)->parserTask();
+static String normalizeIgnoreList(const char* raw) {
+  String out;
+  if (!raw || !raw[0]) return out;
+  String token;
+  for (const char* p = raw; *p; ++p) {
+    char c = *p;
+    if (c == '\r' || c == '\n' || c == ',' || c == ';' || isspace((unsigned char)c)) {
+      if (token.length()) {
+        token.toUpperCase();
+        out += "\n";
+        out += token;
+        out += "\n";
+        token = "";
+      }
+      continue;
+    }
+    token += (char)toupper((unsigned char)c);
   }
-  vTaskDelete(nullptr);
+  if (token.length()) {
+    token.toUpperCase();
+    out += "\n";
+    out += token;
+    out += "\n";
+  }
+  return out;
 }
 
-#endif
+const char* BambuMqttClient::kUser = "bblp";
 
 BambuMqttClient::BambuMqttClient() {}
 BambuMqttClient::~BambuMqttClient() {
-#if defined(ARDUINO_ARCH_ESP32)
-  if (_parserTask) {
-    vTaskDelete(_parserTask);
-    _parserTask = nullptr;
-  }
-  if (_parseQueue) {
-    RawMsg msg;
-    while (xQueueReceive(_parseQueue, &msg, 0) == pdTRUE) {
-      delete[] msg.payload;
-    }
-    vQueueDelete(_parseQueue);
-    _parseQueue = nullptr;
-  }
   if (_pendingMutex) {
     vSemaphoreDelete(_pendingMutex);
     _pendingMutex = nullptr;
@@ -51,15 +55,10 @@ BambuMqttClient::~BambuMqttClient() {
     delete[] _fetchedCert;
     _fetchedCert = nullptr;
   }
-#endif
   if (_client) {
     esp_mqtt_client_stop(_client);
     esp_mqtt_client_destroy(_client);
     _client = nullptr;
-  }
-  if (_rxBuf) {
-    delete[] _rxBuf;
-    _rxBuf = nullptr;
   }
   if (_events) {
     delete[] _events;
@@ -90,24 +89,14 @@ bool BambuMqttClient::begin(Settings &settings) {
 
   webSerial.println("[MQTT] TLS: TOFU cert store enabled.");
 
-#if defined(ARDUINO_ARCH_ESP32)
-  if (!_parseQueue) {
-    _parseQueue = xQueueCreate(4, sizeof(RawMsg));
-  }
   if (!_pendingMutex) {
     _pendingMutex = xSemaphoreCreateMutex();
   }
-  if (_parseQueue && !_parserTask) {
-    xTaskCreatePinnedToCore(parserTaskThunk, "bb_mqtt_parse", 6144, this, 0, &_parserTask, 0);
-  }
-#endif
 
   _ready = true;
 
   if (!initClientFromSettings()) {
-#if defined(ARDUINO_ARCH_ESP32)
     fetchCertSync("missing");
-#endif
   }
 
   return true;
@@ -144,9 +133,7 @@ void BambuMqttClient::reloadFromSettings() {
 
   resetClient();
   if (!initClientFromSettings()) {
-#if defined(ARDUINO_ARCH_ESP32)
     fetchCertSync("missing");
-#endif
   }
 
   webSerial.println("[MQTT] Settings reloaded.");
@@ -171,7 +158,8 @@ void BambuMqttClient::buildFromSettings() {
   // HMS defaults (can be moved into settings later)
   _hmsTtlMs  = 20000;
   _eventsCap = 20;
-  _ignoreNorm = "";
+  const char* ignoreRaw = _settings ? _settings->get.hmsIgnore() : "";
+  _ignoreNorm = normalizeIgnoreList(ignoreRaw);
 
   // Do not touch _gcodeState here
 }
@@ -201,9 +189,7 @@ void BambuMqttClient::resetClient() {
 bool BambuMqttClient::initClientFromSettings() {
   if (!configLooksValid()) return false;
   if (!timeIsValid()) {
-#if defined(ARDUINO_ARCH_ESP32)
     ensureTimeSync();
-#endif
     return false;
   }
   const char* cert = _settings ? _settings->get.printerCert() : nullptr;
@@ -245,9 +231,7 @@ void BambuMqttClient::connect() {
   }
 
   if (!_client) {
-#if defined(ARDUINO_ARCH_ESP32)
     fetchCertSync("connect");
-#endif
     return;
   }
   if (_clientStarted) {
@@ -270,7 +254,6 @@ void BambuMqttClient::loopTick() {
   // NEW: completely safe when not configured yet
   if (!_ready || !_events) return;
 
-#if defined(ARDUINO_ARCH_ESP32)
   if (WiFi.status() == WL_CONNECTED) {
     ensureTimeSync();
   }
@@ -324,7 +307,6 @@ void BambuMqttClient::loopTick() {
   if (haveReport) {
     applyParsedReport(report);
   }
-#endif
 
   if (WiFi.status() != WL_CONNECTED) {
     // Still expire HMS so old errors do not stick forever if WiFi drops
@@ -333,27 +315,6 @@ void BambuMqttClient::loopTick() {
   }
 
   const uint32_t now = millis();
-  if (isConnected() && now - _lastMqttDebugMs >= 10000UL) {
-    const uint32_t age = _lastMsgMs ? (now - _lastMsgMs) : 0;
-    webSerial.printf("[MQTT] Loop ok sub=%d lastMsgAge=%u ms lastLen=%u\n",
-                     _subscribed ? 1 : 0, (unsigned)age, (unsigned)_lastMsgLen);
-    _lastMqttDebugMs = now;
-  }
-
-#if defined(ARDUINO_ARCH_ESP32)
-  if (now - _lastReportLogMs >= 5000UL) {
-    uint32_t dropped = 0;
-    if (_pendingMutex && xSemaphoreTake(_pendingMutex, 0) == pdTRUE) {
-      dropped = _droppedMsgs;
-      _droppedMsgs = 0;
-      xSemaphoreGive(_pendingMutex);
-    }
-    if (dropped) {
-      webSerial.printf("[MQTT] Dropped %u report(s) (queue full)\n", (unsigned)dropped);
-      _lastReportLogMs = now;
-    }
-  }
-#endif
 
   expireEvents(millis());
 }
@@ -413,13 +374,9 @@ esp_err_t BambuMqttClient::handleEvent(esp_mqtt_event_handle_t event) {
     case MQTT_EVENT_DISCONNECTED:
       _connected = false;
       _subscribed = false;
-      if (_rxBuf) {
-        delete[] _rxBuf;
-        _rxBuf = nullptr;
-        _rxLen = 0;
-        _rxExpected = 0;
-        _rxTopicMatch = false;
-      }
+      _rxExpected = 0;
+      _rxReceived = 0;
+      _rxTopicMatch = false;
       webSerial.println("[MQTT] Disconnected");
       break;
     case MQTT_EVENT_SUBSCRIBED:
@@ -438,9 +395,7 @@ esp_err_t BambuMqttClient::handleEvent(esp_mqtt_event_handle_t event) {
         if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
           _pendingClientReset = true;
           if (!timeIsValid()) {
-#if defined(ARDUINO_ARCH_ESP32)
             ensureTimeSync();
-#endif
             _clearStoredCert = false;
           } else {
             _clearStoredCert = true;
@@ -466,12 +421,8 @@ bool BambuMqttClient::handleMqttData(esp_mqtt_event_handle_t event) {
 
   if (event->current_data_offset == 0) {
     _rxTopicMatch = topicMatches(event->topic, event->topic_len);
-    if (_rxBuf) {
-      delete[] _rxBuf;
-      _rxBuf = nullptr;
-    }
-    _rxLen = 0;
     _rxExpected = 0;
+    _rxReceived = 0;
 
     if (!_rxTopicMatch) return false;
 
@@ -481,292 +432,594 @@ bool BambuMqttClient::handleMqttData(esp_mqtt_event_handle_t event) {
     }
 
     _rxExpected = (size_t)event->total_data_len;
-    if (_rxExpected > _maxPayloadSeen) _maxPayloadSeen = _rxExpected;
-
-    size_t maxAllowed = kMqttBufferSize;
-#if defined(ARDUINO_ARCH_ESP32)
-    size_t freeHeap = ESP.getFreeHeap();
-    if (freeHeap > kMqttHeapSafety) {
-      const size_t heapCap = freeHeap - kMqttHeapSafety;
-      if (heapCap < maxAllowed) maxAllowed = heapCap;
-    } else {
-      maxAllowed = 0;
-    }
-#endif
-    if (_rxExpected == 0 || _rxExpected > maxAllowed) {
-      _droppedOversize++;
-      if (_rxExpected > _maxPayloadDropped) _maxPayloadDropped = _rxExpected;
-#if defined(ARDUINO_ARCH_ESP32)
-      webSerial.printf("[MQTT] Drop payload len=%u max=%u free=%u\n",
-                       (unsigned)_rxExpected, (unsigned)maxAllowed, (unsigned)freeHeap);
-#else
-      webSerial.printf("[MQTT] Drop payload len=%u max=%u\n",
-                       (unsigned)_rxExpected, (unsigned)maxAllowed);
-#endif
-      _rxTopicMatch = false;
-      _rxExpected = 0;
-      return false;
-    }
-
-    _rxBuf = new (std::nothrow) uint8_t[_rxExpected];
-    if (!_rxBuf) {
-      _droppedAlloc++;
-#if defined(ARDUINO_ARCH_ESP32)
-      webSerial.printf("[MQTT] Drop payload len=%u (alloc failed, free=%u)\n",
-                       (unsigned)_rxExpected, (unsigned)ESP.getFreeHeap());
-#else
-      webSerial.printf("[MQTT] Drop payload len=%u (alloc failed)\n",
-                       (unsigned)_rxExpected);
-#endif
-      _rxTopicMatch = false;
-      _rxExpected = 0;
-      return false;
-    }
+    _streamParser.reset();
   }
 
-  if (!_rxTopicMatch || !_rxBuf) return false;
+  if (!_rxTopicMatch) return false;
   if ((size_t)(event->current_data_offset + event->data_len) > _rxExpected) {
-    delete[] _rxBuf;
-    _rxBuf = nullptr;
-    _rxLen = 0;
     _rxExpected = 0;
+    _rxReceived = 0;
     _rxTopicMatch = false;
     return false;
   }
 
-  memcpy(_rxBuf + event->current_data_offset, event->data, event->data_len);
-  _rxLen = max(_rxLen, (size_t)(event->current_data_offset + event->data_len));
+  if (!_streamParser.feed(reinterpret_cast<const uint8_t*>(event->data), (size_t)event->data_len)) {
+    _parseFail = (uint8_t)(_parseFail + 1);
+    _rxExpected = 0;
+    _rxReceived = 0;
+    _rxTopicMatch = false;
+    return false;
+  }
+  _rxReceived = max(_rxReceived, (size_t)(event->current_data_offset + event->data_len));
 
-  if (_rxLen < _rxExpected) return true;
+  if (_rxReceived < _rxExpected) return true;
 
   _lastMsgLen = _rxExpected;
   _lastMsgMs = millis();
 
-#if defined(ARDUINO_ARCH_ESP32)
-  if (_parseQueue) {
-    RawMsg msg;
-    msg.payload = _rxBuf;
-    msg.length = _rxExpected;
-    _rxBuf = nullptr;
-    _rxLen = 0;
-    _rxExpected = 0;
-    _rxTopicMatch = false;
-    if (xQueueSend(_parseQueue, &msg, 0) != pdTRUE) {
-      delete[] msg.payload;
-      if (_pendingMutex && xSemaphoreTake(_pendingMutex, portMAX_DELAY) == pdTRUE) {
-        _droppedMsgs++;
-        xSemaphoreGive(_pendingMutex);
-      } else {
-        _droppedMsgs++;
-      }
+  ParsedReport report;
+  if (_streamParser.finish(report)) {
+    _parseOk = (uint8_t)(_parseOk + 1);
+    if (_pendingMutex && xSemaphoreTake(_pendingMutex, portMAX_DELAY) == pdTRUE) {
+      _pendingReport = report;
+      _pendingReady = true;
+      xSemaphoreGive(_pendingMutex);
+    } else {
+      applyParsedReport(report);
     }
-    return true;
+  } else {
+    _parseFail = (uint8_t)(_parseFail + 1);
   }
-#endif
 
-  handleReportJson(_rxBuf, _rxExpected);
-  delete[] _rxBuf;
-  _rxBuf = nullptr;
-  _rxLen = 0;
   _rxExpected = 0;
+  _rxReceived = 0;
   _rxTopicMatch = false;
   return true;
 }
 
-void BambuMqttClient::handleReportJson(const uint8_t* payload, size_t length) {
-  ParsedReport report;
-  if (!parseReportJson(payload, length, report)) return;
-  applyParsedReport(report);
+/* ================= Streaming JSON Parser (no heap alloc) ================= */
+
+BambuMqttClient::StreamParser::KeyId
+BambuMqttClient::StreamParser::keyIdFromString(const char* s, size_t len) {
+  if (!s || len == 0) return KeyId::Unknown;
+  switch (len) {
+    case 3:
+      if (memcmp(s, "hms", 3) == 0) return KeyId::Hms;
+      break;
+    case 4:
+      if (memcmp(s, "info", 4) == 0) return KeyId::Info;
+      if (memcmp(s, "attr", 4) == 0) return KeyId::Attr;
+      if (memcmp(s, "code", 4) == 0) return KeyId::Code;
+      if (memcmp(s, "data", 4) == 0) return KeyId::Data;
+      if (memcmp(s, "temp", 4) == 0) return KeyId::Temp;
+      if (memcmp(s, "htar", 4) == 0) return KeyId::Htar;
+      if (memcmp(s, "hnow", 4) == 0) return KeyId::Hnow;
+      break;
+    case 5:
+      if (memcmp(s, "print", 5) == 0) return KeyId::Print;
+      break;
+    case 6:
+      if (memcmp(s, "device", 6) == 0) return KeyId::Device;
+      break;
+    case 7:
+      if (memcmp(s, "percent", 7) == 0) return KeyId::Percent;
+      break;
+    case 8:
+      if (memcmp(s, "extruder", 8) == 0) return KeyId::Extruder;
+      break;
+    case 10:
+      if (memcmp(s, "mc_percent", 10) == 0) return KeyId::McPercent;
+      if (memcmp(s, "dl_percent", 10) == 0) return KeyId::DlPercent;
+      if (memcmp(s, "bed_temper", 10) == 0) return KeyId::BedTemper;
+      break;
+    case 11:
+      if (memcmp(s, "gcode_state", 11) == 0) return KeyId::GcodeState;
+      if (memcmp(s, "dl_progress", 11) == 0) return KeyId::DlProgress;
+      if (memcmp(s, "prepare_per", 11) == 0) return KeyId::PreparePer;
+      break;
+    case 13:
+      if (memcmp(s, "nozzle_temper", 13) == 0) return KeyId::NozzleTemper;
+      break;
+    case 15:
+      if (memcmp(s, "bed_temperature", 15) == 0) return KeyId::BedTemperature;
+      break;
+    case 16:
+      if (memcmp(s, "download_percent", 16) == 0) return KeyId::DownloadPercent;
+      break;
+    case 17:
+      if (memcmp(s, "bed_target_temper", 17) == 0) return KeyId::BedTargetTemper;
+      break;
+    case 18:
+      if (memcmp(s, "download_progress", 18) == 0) return KeyId::DownloadProgress;
+      break;
+    case 20:
+      if (memcmp(s, "nozzle_target_temper", 20) == 0) return KeyId::NozzleTargetTemper;
+      break;
+    case 22:
+      if (memcmp(s, "bed_target_temperature", 22) == 0) return KeyId::BedTargetTemperature;
+      break;
+    case 26:
+      if (memcmp(s, "gcode_file_prepare_percent", 26) == 0) return KeyId::GcodeFilePreparePercent;
+      break;
+    default:
+      break;
+  }
+  return KeyId::Unknown;
 }
 
-bool BambuMqttClient::parseReportJson(const uint8_t* payload, size_t length, ParsedReport& out) {
-  out = ParsedReport();
-  out.nowMs = millis();
+void BambuMqttClient::StreamParser::reset() {
+  _mode = Mode::Default;
+  _escape = false;
+  _strLen = 0;
+  _numLen = 0;
+  _litLen = 0;
+  _currentKey = KeyId::Unknown;
+  _error = false;
+  _depth = 0;
+  _report = ParsedReport();
+  _report.nowMs = millis();
+  _bedOk = false;
+  _bedTargetOk = false;
+  _bedTemp = 0.0f;
+  _bedTarget = 0.0f;
+  _nozOk = false;
+  _nozTargetOk = false;
+  _nozTemp = 0.0f;
+  _nozTarget = 0.0f;
+  _nozzleHeatingCandidate = false;
+  _hmsArraySeen = false;
+  _hmsAttr = 0;
+  _hmsCode = 0;
+  _hmsAttrSet = false;
+  _hmsCodeSet = false;
+}
 
-  static JsonDocument filter;
-  if (filter.isNull()) {
-    filter["print"]["gcode_state"] = true;
-    filter["gcode_state"] = true;
+BambuMqttClient::StreamParser::KeyId
+BambuMqttClient::StreamParser::parentKey() const {
+  if (_depth <= 0) return KeyId::Root;
+  return _stack[_depth - 1].key;
+}
 
-    filter["print"]["mc_percent"] = true;
-    filter["mc_percent"] = true;
-    filter["print"]["percent"] = true;
-    filter["percent"] = true;
+BambuMqttClient::StreamParser::KeyId
+BambuMqttClient::StreamParser::grandParentKey() const {
+  if (_depth <= 1) return KeyId::Root;
+  return _stack[_depth - 2].key;
+}
 
-    filter["print"]["download_progress"] = true;
-    filter["print"]["download_percent"] = true;
-    filter["print"]["dl_percent"] = true;
-    filter["print"]["dl_progress"] = true;
-    filter["print"]["prepare_per"] = true;
-    filter["print"]["gcode_file_prepare_percent"] = true;
-    filter["download_progress"] = true;
-    filter["download_percent"] = true;
+bool BambuMqttClient::StreamParser::inExtruderInfoArray() const {
+  for (int i = _depth - 1; i >= 0; --i) {
+    if (_stack[i].isArray && _stack[i].isExtruderInfoArray) return true;
+  }
+  return false;
+}
 
-    filter["print"]["bed_temper"] = true;
-    filter["print"]["bed_temperature"] = true;
-    filter["bed_temper"] = true;
-    filter["print"]["bed_target_temper"] = true;
-    filter["print"]["bed_target_temperature"] = true;
-    filter["bed_target_temper"] = true;
+int BambuMqttClient::StreamParser::currentExtruderInfoIndex() const {
+  for (int i = _depth - 1; i >= 0; --i) {
+    if (_stack[i].isArray && _stack[i].isExtruderInfoArray) return _stack[i].index;
+  }
+  return -1;
+}
 
-    filter["print"]["nozzle_temper"] = true;
-    filter["nozzle_temper"] = true;
-    filter["print"]["nozzle_target_temper"] = true;
-    filter["nozzle_target_temper"] = true;
+bool BambuMqttClient::StreamParser::inHmsItem() const {
+  if (_depth <= 0) return false;
+  if (_stack[_depth - 1].isArray) return false;
+  return _stack[_depth - 1].isHmsItem;
+}
 
-    filter["device"]["extruder"]["info"][0]["hnow"] = true;
-    filter["device"]["extruder"]["info"][0]["htar"] = true;
-    filter["device"]["extruder"]["info"][0]["temp"] = true;
+void BambuMqttClient::StreamParser::pushObject() {
+  if (_depth >= (int)(sizeof(_stack) / sizeof(_stack[0]))) {
+    _error = true;
+    return;
+  }
+  if (_depth > 0 && _stack[_depth - 1].isArray && _stack[_depth - 1].expectingValue) {
+    _stack[_depth - 1].index++;
+    _stack[_depth - 1].expectingValue = false;
+  }
+  Ctx ctx;
+  ctx.isArray = false;
+  ctx.expectingKey = true;
+  ctx.expectingValue = false;
+  ctx.key = (_depth == 0) ? KeyId::Root : _currentKey;
+  ctx.isHmsArray = false;
+  ctx.isExtruderInfoArray = false;
+  ctx.isHmsItem = (_depth > 0 && _stack[_depth - 1].isArray && _stack[_depth - 1].isHmsArray);
+  ctx.index = -1;
+  if (ctx.isHmsItem) {
+    _hmsAttrSet = false;
+    _hmsCodeSet = false;
+  }
+  _stack[_depth++] = ctx;
+  _currentKey = KeyId::Unknown;
+}
 
-    filter["hms"][0]["attr"] = true;
-    filter["hms"][0]["code"] = true;
-    filter["print"]["hms"][0]["attr"] = true;
-    filter["print"]["hms"][0]["code"] = true;
-    filter["data"]["hms"][0]["attr"] = true;
-    filter["data"]["hms"][0]["code"] = true;
+void BambuMqttClient::StreamParser::pushArray() {
+  if (_depth >= (int)(sizeof(_stack) / sizeof(_stack[0]))) {
+    _error = true;
+    return;
+  }
+  if (_depth > 0 && _stack[_depth - 1].isArray && _stack[_depth - 1].expectingValue) {
+    _stack[_depth - 1].index++;
+    _stack[_depth - 1].expectingValue = false;
+  }
+  Ctx ctx;
+  ctx.isArray = true;
+  ctx.expectingKey = false;
+  ctx.expectingValue = true;
+  ctx.key = (_depth == 0) ? KeyId::Root : _currentKey;
+  const KeyId p = parentKey();
+  const KeyId gp = grandParentKey();
+  ctx.isHmsArray = (ctx.key == KeyId::Hms) && (p == KeyId::Print || p == KeyId::Data || p == KeyId::Root);
+  ctx.isExtruderInfoArray = (ctx.key == KeyId::Info) && (p == KeyId::Extruder) && (gp == KeyId::Device);
+  ctx.isHmsItem = false;
+  ctx.index = -1;
+  if (ctx.isHmsArray) _hmsArraySeen = true;
+  _stack[_depth++] = ctx;
+  _currentKey = KeyId::Unknown;
+}
+
+void BambuMqttClient::StreamParser::addHmsIfReady() {
+  if (!_hmsAttrSet || !_hmsCodeSet) return;
+  if (_report.hmsCount >= (sizeof(_report.hms) / sizeof(_report.hms[0]))) return;
+  _report.hms[_report.hmsCount].attr = _hmsAttr;
+  _report.hms[_report.hmsCount].code = _hmsCode;
+  _report.hmsCount++;
+}
+
+void BambuMqttClient::StreamParser::popContext() {
+  if (_depth <= 0) return;
+  Ctx ctx = _stack[_depth - 1];
+  _depth--;
+  if (!ctx.isArray && ctx.isHmsItem) {
+    addHmsIfReady();
+  }
+}
+
+void BambuMqttClient::StreamParser::valueCompleted() {
+  if (_depth <= 0) return;
+  if (_stack[_depth - 1].isArray) {
+    // no-op, array index not tracked
+  } else {
+    _stack[_depth - 1].expectingKey = true;
+  }
+  _currentKey = KeyId::Unknown;
+}
+
+bool BambuMqttClient::StreamParser::isNumberChar(char c) const {
+  return (c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E';
+}
+
+bool BambuMqttClient::StreamParser::parseInt(const char* s, size_t len, int& out) const {
+  if (!s || len == 0) return false;
+  char buf[24];
+  if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+  memcpy(buf, s, len);
+  buf[len] = 0;
+  char* endp = nullptr;
+  long v = strtol(buf, &endp, 10);
+  if (endp == buf) return false;
+  out = (int)v;
+  return true;
+}
+
+bool BambuMqttClient::StreamParser::parseFloat(const char* s, size_t len, float& out) const {
+  if (!s || len == 0) return false;
+  char buf[24];
+  if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+  memcpy(buf, s, len);
+  buf[len] = 0;
+  char* endp = nullptr;
+  float v = strtof(buf, &endp);
+  if (endp == buf) return false;
+  out = v;
+  return true;
+}
+
+void BambuMqttClient::StreamParser::handleValueString(const char* s, size_t len) {
+  const KeyId p = parentKey();
+  const bool inPrint = (p == KeyId::Print);
+  const bool atRoot = (p == KeyId::Root);
+
+  if (_currentKey == KeyId::GcodeState && (inPrint || atRoot)) {
+    _report.hasGcodeState = true;
+    char buf[sizeof(_report.gcodeState)];
+    size_t n = len < sizeof(buf) - 1 ? len : sizeof(buf) - 1;
+    memcpy(buf, s, n);
+    buf[n] = 0;
+    snprintf(_report.gcodeState, sizeof(_report.gcodeState), "%s", buf);
+    return;
   }
 
-  static JsonDocument doc;
-  doc.clear();
-  DeserializationError err = deserializeJson(doc, payload, length, DeserializationOption::Filter(filter));
-  if (err) {
-    webSerial.printf("[MQTT] JSON parse error: %s\n", err.c_str());
-    return false;
+  if (_currentKey == KeyId::McPercent || _currentKey == KeyId::Percent ||
+      _currentKey == KeyId::DownloadProgress || _currentKey == KeyId::DownloadPercent ||
+      _currentKey == KeyId::DlPercent || _currentKey == KeyId::DlProgress ||
+      _currentKey == KeyId::PreparePer || _currentKey == KeyId::GcodeFilePreparePercent ||
+      _currentKey == KeyId::BedTemper || _currentKey == KeyId::BedTemperature ||
+      _currentKey == KeyId::BedTargetTemper || _currentKey == KeyId::BedTargetTemperature ||
+      _currentKey == KeyId::NozzleTemper || _currentKey == KeyId::NozzleTargetTemper ||
+      _currentKey == KeyId::Attr || _currentKey == KeyId::Code ||
+      _currentKey == KeyId::Hnow || _currentKey == KeyId::Htar || _currentKey == KeyId::Temp) {
+    handleValueNumber(s, len);
   }
+}
 
-  if (doc["print"]["gcode_state"].is<const char*>()) {
-    out.hasGcodeState = true;
-    snprintf(out.gcodeState, sizeof(out.gcodeState), "%s", doc["print"]["gcode_state"].as<const char*>());
-  } else if (doc["gcode_state"].is<const char*>()) {
-    out.hasGcodeState = true;
-    snprintf(out.gcodeState, sizeof(out.gcodeState), "%s", doc["gcode_state"].as<const char*>());
-  }
+void BambuMqttClient::StreamParser::handleValueNumber(const char* s, size_t len) {
+  const KeyId p = parentKey();
+  const bool inPrint = (p == KeyId::Print);
+  const bool atRoot = (p == KeyId::Root);
 
-  auto readInt = [](JsonVariant v, int& out) -> bool {
-    if (v.is<int>()) { out = v.as<int>(); return true; }
-    if (v.is<unsigned int>()) { out = (int)v.as<unsigned int>(); return true; }
-    if (v.is<float>()) { out = (int)v.as<float>(); return true; }
-    if (v.is<const char*>()) { out = atoi(v.as<const char*>()); return true; }
-    return false;
-  };
-
-  auto readFloat = [](JsonVariant v, float& out) -> bool {
-    if (v.is<float>()) { out = v.as<float>(); return true; }
-    if (v.is<int>()) { out = (float)v.as<int>(); return true; }
-    if (v.is<const char*>()) { out = (float)atof(v.as<const char*>()); return true; }
-    return false;
-  };
-
-  int p = -1;
-  if (readInt(doc["print"]["mc_percent"], p) ||
-      readInt(doc["mc_percent"], p) ||
-      readInt(doc["print"]["percent"], p) ||
-      readInt(doc["percent"], p)) {
-    if (p >= 0 && p <= 100) {
-      out.hasPrintProgress = true;
-      out.printProgress = (uint8_t)p;
+  if (_currentKey == KeyId::McPercent || _currentKey == KeyId::Percent) {
+    if (inPrint || atRoot) {
+      int v = 0;
+      if (parseInt(s, len, v) && v >= 0 && v <= 100) {
+        _report.hasPrintProgress = true;
+        _report.printProgress = (uint8_t)v;
+      }
     }
+    return;
   }
 
-  int dl = -1;
-  if (readInt(doc["print"]["download_progress"], dl) ||
-      readInt(doc["print"]["download_percent"], dl) ||
-      readInt(doc["print"]["dl_percent"], dl) ||
-      readInt(doc["print"]["dl_progress"], dl) ||
-      readInt(doc["print"]["prepare_per"], dl) ||
-      readInt(doc["print"]["gcode_file_prepare_percent"], dl) ||
-      readInt(doc["download_progress"], dl) ||
-      readInt(doc["download_percent"], dl)) {
-    if (dl >= 0 && dl <= 100) {
-      out.hasDownloadProgress = true;
-      out.downloadProgress = (uint8_t)dl;
+  if (_currentKey == KeyId::DownloadProgress || _currentKey == KeyId::DownloadPercent ||
+      _currentKey == KeyId::DlPercent || _currentKey == KeyId::DlProgress ||
+      _currentKey == KeyId::PreparePer || _currentKey == KeyId::GcodeFilePreparePercent) {
+    if (inPrint || atRoot) {
+      int v = 0;
+      if (parseInt(s, len, v) && v >= 0 && v <= 100) {
+        _report.hasDownloadProgress = true;
+        _report.downloadProgress = (uint8_t)v;
+      }
     }
+    return;
   }
 
-  float bed = 0.0f;
-  float bedTarget = 0.0f;
-  bool bedOk = readFloat(doc["print"]["bed_temper"], bed) ||
-               readFloat(doc["print"]["bed_temperature"], bed) ||
-               readFloat(doc["bed_temper"], bed);
-  bool targetOk = readFloat(doc["print"]["bed_target_temper"], bedTarget) ||
-                  readFloat(doc["print"]["bed_target_temperature"], bedTarget) ||
-                  readFloat(doc["bed_target_temper"], bedTarget);
-  if (bedOk && targetOk) {
-    out.hasBed = true;
-    out.bedTemp = bed;
-    out.bedTarget = bedTarget;
+  if (_currentKey == KeyId::BedTemper || _currentKey == KeyId::BedTemperature) {
+    if (inPrint || atRoot) {
+      float v = 0.0f;
+      if (parseFloat(s, len, v)) {
+        _bedTemp = v;
+        _bedOk = true;
+      }
+    }
+    return;
   }
 
-  float noz = 0.0f;
-  float nozTarget = 0.0f;
-  bool nozOk = readFloat(doc["print"]["nozzle_temper"], noz) ||
-               readFloat(doc["nozzle_temper"], noz);
-  bool nozTargetOk = readFloat(doc["print"]["nozzle_target_temper"], nozTarget) ||
-                     readFloat(doc["nozzle_target_temper"], nozTarget);
+  if (_currentKey == KeyId::BedTargetTemper || _currentKey == KeyId::BedTargetTemperature) {
+    if (inPrint || atRoot) {
+      float v = 0.0f;
+      if (parseFloat(s, len, v)) {
+        _bedTarget = v;
+        _bedTargetOk = true;
+      }
+    }
+    return;
+  }
 
-  out.nozzleHeating = false;
-  JsonVariant extr = doc["device"]["extruder"]["info"];
-  if (extr.is<JsonArray>()) {
-    for (JsonVariant v : extr.as<JsonArray>()) {
-      if (!v.is<JsonObject>()) continue;
-      JsonObject e = v.as<JsonObject>();
+  if (_currentKey == KeyId::NozzleTemper) {
+    if (inPrint || atRoot) {
+      float v = 0.0f;
+      if (parseFloat(s, len, v)) {
+        _nozTemp = v;
+        _nozOk = true;
+      }
+    }
+    return;
+  }
 
-      int hnow = 0;
-      if (readInt(e["hnow"], hnow) && hnow > 0) out.nozzleHeating = true;
-      int htar = 0;
-      if (readInt(e["htar"], htar) && htar > 0) out.nozzleHeating = true;
+  if (_currentKey == KeyId::NozzleTargetTemper) {
+    if (inPrint || atRoot) {
+      float v = 0.0f;
+      if (parseFloat(s, len, v)) {
+        _nozTarget = v;
+        _nozTargetOk = true;
+      }
+    }
+    return;
+  }
 
+  if (inHmsItem()) {
+    int v = 0;
+    if ((_currentKey == KeyId::Attr || _currentKey == KeyId::Code) && parseInt(s, len, v) && v >= 0) {
+      if (_currentKey == KeyId::Attr) {
+        _hmsAttr = (uint32_t)v;
+        _hmsAttrSet = true;
+      } else {
+        _hmsCode = (uint32_t)v;
+        _hmsCodeSet = true;
+      }
+    }
+    return;
+  }
+
+  if (inExtruderInfoArray()) {
+    if (_currentKey == KeyId::Hnow || _currentKey == KeyId::Htar) {
+      int v = 0;
+      if (parseInt(s, len, v) && v > 0) _nozzleHeatingCandidate = true;
+      return;
+    }
+    if (_currentKey == KeyId::Temp) {
       float t = 0.0f;
-      if (readFloat(e["temp"], t)) {
+      if (parseFloat(s, len, t)) {
         if (t > 500.0f) {
           float fx = t / 65536.0f;
           if (fx >= 0.0f && fx <= 500.0f) t = fx;
         }
-        if (!nozOk || t > noz) {
-          noz = t;
-          nozOk = true;
+        if (!_nozOk || t > _nozTemp) {
+          _nozTemp = t;
+          _nozOk = true;
         }
       }
+      return;
     }
   }
+}
 
-  if (nozOk) {
-    out.hasNozzleTemp = true;
-    out.nozzleTemp = noz;
-  }
-  if (nozTargetOk) {
-    out.hasNozzleTarget = true;
-    out.nozzleTarget = nozTarget;
-  }
+void BambuMqttClient::StreamParser::handleValueLiteral(const char* s, size_t len) {
+  (void)s;
+  (void)len;
+}
 
-  JsonArray arr = findHmsArray(doc);
-  if (arr) {
-    out.hmsPresent = true;
-    for (JsonVariant v : arr) {
-      if (!v.is<JsonObject>()) continue;
-      JsonObject h = v.as<JsonObject>();
-
-      if (!h["attr"].is<uint32_t>() || !h["code"].is<uint32_t>()) continue;
-      const uint32_t attr = (uint32_t)h["attr"];
-      const uint32_t code = (uint32_t)h["code"];
-
-      const uint64_t full = (uint64_t(attr) << 32) | uint64_t(code);
-      char codeStr[24];
-      formatHmsCodeStr(full, codeStr);
-      if (isIgnored(codeStr)) continue;
-
-      if (out.hmsCount < (sizeof(out.hms) / sizeof(out.hms[0]))) {
-        out.hms[out.hmsCount].attr = attr;
-        out.hms[out.hmsCount].code = code;
-        out.hmsCount++;
+bool BambuMqttClient::StreamParser::feed(const uint8_t* data, size_t len) {
+  if (_error) return false;
+  for (size_t i = 0; i < len; i++) {
+    char c = (char)data[i];
+    if (_mode == Mode::InNumber) {
+      if (isNumberChar(c)) {
+        if (_numLen < sizeof(_numBuf) - 1) _numBuf[_numLen++] = c;
+        continue;
       }
+      _numBuf[_numLen] = 0;
+      handleValueNumber(_numBuf, _numLen);
+      valueCompleted();
+      _numLen = 0;
+      _mode = Mode::Default;
+      i--;
+      continue;
     }
-  } else {
-    out.hmsPresent = false;
+    if (_mode == Mode::InLiteral) {
+      if (isalpha((unsigned char)c)) {
+        if (_litLen < sizeof(_litBuf) - 1) _litBuf[_litLen++] = c;
+        continue;
+      }
+      _litBuf[_litLen] = 0;
+      handleValueLiteral(_litBuf, _litLen);
+      valueCompleted();
+      _litLen = 0;
+      _mode = Mode::Default;
+      i--;
+      continue;
+    }
+    if (_mode == Mode::InStringKey || _mode == Mode::InStringVal) {
+      if (_escape) {
+        _escape = false;
+        if (_strLen < sizeof(_strBuf) - 1) _strBuf[_strLen++] = c;
+        continue;
+      }
+      if (c == '\\') {
+        _escape = true;
+        continue;
+      }
+      if (c == '"') {
+        _strBuf[_strLen] = 0;
+        if (_mode == Mode::InStringKey) {
+          _currentKey = keyIdFromString(_strBuf, _strLen);
+        } else {
+          handleValueString(_strBuf, _strLen);
+          valueCompleted();
+        }
+        _strLen = 0;
+        _mode = Mode::Default;
+        continue;
+      }
+      if (_strLen < sizeof(_strBuf) - 1) _strBuf[_strLen++] = c;
+      continue;
+    }
+
+    if (isspace((unsigned char)c)) continue;
+
+    switch (c) {
+      case '{':
+        pushObject();
+        break;
+      case '[':
+        pushArray();
+        break;
+      case '}':
+        popContext();
+        valueCompleted();
+        break;
+      case ']':
+        popContext();
+        valueCompleted();
+        break;
+      case '"': {
+        if (_depth > 0 && _stack[_depth - 1].isArray && _stack[_depth - 1].expectingValue) {
+          _stack[_depth - 1].index++;
+          _stack[_depth - 1].expectingValue = false;
+        }
+        if (_depth > 0 && !_stack[_depth - 1].isArray && _stack[_depth - 1].expectingKey) {
+          _mode = Mode::InStringKey;
+        } else {
+          _mode = Mode::InStringVal;
+        }
+        _strLen = 0;
+        _escape = false;
+        break;
+      }
+      case ':':
+        if (_depth > 0 && !_stack[_depth - 1].isArray) {
+          _stack[_depth - 1].expectingKey = false;
+        }
+        break;
+      case ',':
+        if (_depth > 0) {
+          if (_stack[_depth - 1].isArray) {
+            _stack[_depth - 1].expectingValue = true;
+          } else {
+            _stack[_depth - 1].expectingKey = true;
+          }
+        }
+        break;
+      default:
+        if (isNumberChar(c)) {
+          if (_depth > 0 && _stack[_depth - 1].isArray && _stack[_depth - 1].expectingValue) {
+            _stack[_depth - 1].index++;
+            _stack[_depth - 1].expectingValue = false;
+          }
+          _mode = Mode::InNumber;
+          _numLen = 0;
+          _numBuf[_numLen++] = c;
+        } else if (c == 't' || c == 'f' || c == 'n') {
+          if (_depth > 0 && _stack[_depth - 1].isArray && _stack[_depth - 1].expectingValue) {
+            _stack[_depth - 1].index++;
+            _stack[_depth - 1].expectingValue = false;
+          }
+          _mode = Mode::InLiteral;
+          _litLen = 0;
+          _litBuf[_litLen++] = c;
+        }
+        break;
+    }
+  }
+  return !_error;
+}
+
+bool BambuMqttClient::StreamParser::finish(ParsedReport& out) {
+  if (_error) return false;
+  if (_mode == Mode::InNumber) {
+    _numBuf[_numLen] = 0;
+    handleValueNumber(_numBuf, _numLen);
+    _numLen = 0;
+    _mode = Mode::Default;
+  } else if (_mode == Mode::InLiteral) {
+    _litBuf[_litLen] = 0;
+    handleValueLiteral(_litBuf, _litLen);
+    _litLen = 0;
+    _mode = Mode::Default;
   }
 
+  if (_bedOk && _bedTargetOk) {
+    _report.hasBed = true;
+    _report.bedTemp = _bedTemp;
+    _report.bedTarget = _bedTarget;
+  }
+  if (_nozOk) {
+    _report.hasNozzleTemp = true;
+    _report.nozzleTemp = _nozTemp;
+  }
+  if (_nozTargetOk) {
+    _report.hasNozzleTarget = true;
+    _report.nozzleTarget = _nozTarget;
+  }
+  if (_nozOk && _nozTargetOk) {
+    _report.nozzleHeating = (_nozTarget > (_nozTemp + 2.0f));
+  } else {
+    _report.nozzleHeating = _nozzleHeatingCandidate;
+  }
+  _report.hmsPresent = _hmsArraySeen;
+
+  out = _report;
   return true;
 }
+
 
 void BambuMqttClient::applyParsedReport(const ParsedReport& report) {
   const uint32_t nowMs = report.nowMs ? report.nowMs : millis();
@@ -797,6 +1050,10 @@ void BambuMqttClient::applyParsedReport(const ParsedReport& report) {
 
   if (report.hmsPresent) {
     for (uint8_t i = 0; i < report.hmsCount; i++) {
+      const uint64_t full = (uint64_t(report.hms[i].attr) << 32) | uint64_t(report.hms[i].code);
+      char codeStr[24];
+      formatHmsCodeStr(full, codeStr);
+      if (isIgnored(codeStr)) continue;
       upsertEvent(report.hms[i].attr, report.hms[i].code, nowMs);
     }
   }
@@ -807,28 +1064,6 @@ void BambuMqttClient::applyParsedReport(const ParsedReport& report) {
   if (_reportCb) _reportCb(nowMs);
 }
 
-#if defined(ARDUINO_ARCH_ESP32)
-void BambuMqttClient::parserTask() {
-  for (;;) {
-    RawMsg msg;
-    if (xQueueReceive(_parseQueue, &msg, portMAX_DELAY) != pdTRUE) continue;
-
-    ParsedReport report;
-    const bool ok = parseReportJson(msg.payload, msg.length, report);
-    delete[] msg.payload;
-    if (!ok) continue;
-
-    if (_pendingMutex && xSemaphoreTake(_pendingMutex, portMAX_DELAY) == pdTRUE) {
-      _pendingReport = report;
-      _pendingReady = true;
-      xSemaphoreGive(_pendingMutex);
-    }
-    vTaskDelay(1);
-  }
-}
-#endif
-
-#if defined(ARDUINO_ARCH_ESP32)
 void BambuMqttClient::fetchCertSync(const char* reason) {
   if (_certFetchInProgress) return;
   if (!configLooksValid()) return;
@@ -935,9 +1170,7 @@ void BambuMqttClient::fetchCertSync(const char* reason) {
   client.stop();
   _certFetchInProgress = false;
 }
-#endif
 
-#if defined(ARDUINO_ARCH_ESP32)
 void BambuMqttClient::ensureTimeSync() {
   if (_timeSyncOk) return;
   if (_timeSyncStarted) {
@@ -954,18 +1187,13 @@ void BambuMqttClient::ensureTimeSync() {
   _timeSyncStarted = true;
   webSerial.println("[MQTT] Time sync started.");
 }
-#endif
-
-JsonArray BambuMqttClient::findHmsArray(JsonDocument& doc) {
-  if (doc["hms"].is<JsonArray>()) return doc["hms"].as<JsonArray>();
-  if (doc["print"]["hms"].is<JsonArray>()) return doc["print"]["hms"].as<JsonArray>();
-  if (doc["data"]["hms"].is<JsonArray>()) return doc["data"]["hms"].as<JsonArray>();
-  return JsonArray();
-}
 
 bool BambuMqttClient::isIgnored(const char* codeStr) const {
   if (_ignoreNorm.isEmpty()) return false;
-  return (_ignoreNorm.indexOf(codeStr) >= 0);
+  String needle = "\n";
+  needle += codeStr;
+  needle += "\n";
+  return (_ignoreNorm.indexOf(needle) >= 0);
 }
 
 BambuMqttClient::Severity BambuMqttClient::severityFromCode(uint32_t code) {
@@ -1119,13 +1347,17 @@ void BambuMqttClient::logStatusIfNeeded(uint32_t nowMs) {
 
   const char* state = _gcodeState.length() ? _gcodeState.c_str() : "?";
   if (_bedValid) {
-    webSerial.printf("[MQTT] State=%s Print=%u%% DL=%u%% Bed=%.1f/%.1f HMS=%u Top=%s\n",
+    webSerial.printf("[MQTT] State=%s Print=%u%% DL=%u%% Bed=%.1f/%.1f HMS=%u Top=%s Len=%u Parse=%u/%u\n",
                      state, _printProgress, _downloadProgress,
-                     _bedTemp, _bedTarget, (unsigned)hmsCount, severityToStr(top));
+                     _bedTemp, _bedTarget, (unsigned)hmsCount, severityToStr(top),
+                     (unsigned)_lastMsgLen,
+                     (unsigned)_parseOk, (unsigned)_parseFail);
   } else {
-    webSerial.printf("[MQTT] State=%s Print=%u%% DL=%u%% Bed=n/a HMS=%u Top=%s\n",
+    webSerial.printf("[MQTT] State=%s Print=%u%% DL=%u%% Bed=n/a HMS=%u Top=%s Len=%u Parse=%u/%u\n",
                      state, _printProgress, _downloadProgress,
-                     (unsigned)hmsCount, severityToStr(top));
+                     (unsigned)hmsCount, severityToStr(top),
+                     (unsigned)_lastMsgLen,
+                     (unsigned)_parseOk, (unsigned)_parseFail);
   }
 
   _lastStatusLogMs = nowMs;

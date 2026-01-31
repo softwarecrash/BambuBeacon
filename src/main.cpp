@@ -57,6 +57,10 @@ printerDiscovery.forceRescan(2000UL);      // first scan shortly after boot
 }
 
 void loop() {
+  ledsCtrl.loop();
+  if (ledsCtrl.bootTestActive()) {
+    return;
+  }
   wifiManager.loop();
   printerDiscovery.update();
   if (bambu.isConnected() || !printerDiscovery.isBusy()) {
@@ -108,6 +112,9 @@ void loop() {
   uint8_t pp = bambu.printProgress();
   ledsCtrl.setPrintProgress((printing && pp <= 100 && pp < 100) ? pp : 255);
   ledsCtrl.setUpdateAvailable(ota.isUpdateAvailable());
+  if (!ledsCtrl.otaManualActive()) {
+    ledsCtrl.setOtaProgress(ota.isDownloading() ? ota.progressPercent() : 255);
+  }
 
   bool heating = false;
   bool cooling = false;

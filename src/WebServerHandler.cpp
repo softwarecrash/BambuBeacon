@@ -502,6 +502,9 @@ void WebServerHandler::begin() {
         if (!isAuthorized(req)) return req->requestAuthentication();
       }
       const bool ok = !Update.hasError();
+      if (!ok) {
+        ledsCtrl.setOtaProgressManual(false, 255);
+      }
       if (!ok && mqttPausedForUpdate) {
         mqttPausedForUpdate = false;
         if (WiFi.status() == WL_CONNECTED) bambu.connect();
@@ -518,6 +521,7 @@ void WebServerHandler::begin() {
           mqttPausedForUpdate = true;
           webSerial.println("[MQTT] Paused for OTA");
         }
+        ledsCtrl.setOtaProgressManual(true, 0);
         if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
           Update.printError(webSerial);
         }
@@ -525,14 +529,24 @@ void WebServerHandler::begin() {
       if (Update.write(data, len) != len) {
         Update.printError(webSerial);
       }
+      if (req && req->contentLength() > 0) {
+        const size_t totalLen = req->contentLength();
+        uint32_t done = (uint32_t)(index + len);
+        if (done > totalLen) done = (uint32_t)totalLen;
+        uint8_t pct = (uint8_t)((done * 100ULL) / totalLen);
+        ledsCtrl.setOtaProgressManual(true, pct);
+      }
       if (final) {
         const bool ok = Update.end(true);
         if (!ok) {
           Update.printError(webSerial);
+          ledsCtrl.setOtaProgressManual(false, 255);
           if (mqttPausedForUpdate) {
             mqttPausedForUpdate = false;
             if (WiFi.status() == WL_CONNECTED) bambu.connect();
           }
+        } else {
+          ledsCtrl.setOtaProgressManual(true, 100);
         }
       }
     }
@@ -605,6 +619,7 @@ void WebServerHandler::begin() {
     doc["printerIP"] = settings.get.printerIP();
     doc["printerUSN"] = settings.get.printerUSN();
     doc["printerAC"] = settings.get.printerAC();
+    doc["hmsIgnore"] = settings.get.hmsIgnore();
     doc["ledSegments"] = settings.get.LEDSegments();
     doc["ledPerSeg"] = settings.get.LEDperSeg();
     doc["ledMaxCurrentmA"] = settings.get.LEDMaxCurrentmA();
@@ -614,6 +629,30 @@ void WebServerHandler::begin() {
     String out;
     serializeJson(doc, out);
     req->send(200, "application/json", out);
+  });
+
+  server.on("/hmsignore.json", HTTP_GET, [&](AsyncWebServerRequest* req) {
+    if (!wifiManager.isApMode()) {
+      if (!isAuthorized(req)) return req->requestAuthentication();
+    }
+
+    JsonDocument doc;
+    doc["hmsIgnore"] = settings.get.hmsIgnore();
+    String out;
+    serializeJson(doc, out);
+    req->send(200, "application/json", out);
+  });
+
+  server.on("/setHmsIgnore", HTTP_POST, [&](AsyncWebServerRequest* req) {
+    if (!wifiManager.isApMode()) {
+      if (!isAuthorized(req)) return req->requestAuthentication();
+    }
+    const String v = req->hasParam("hmsignore", true) ? req->getParam("hmsignore", true)->value() : "";
+    settings.set.hmsIgnore(v);
+    settings.save();
+    bambu.reloadFromSettings();
+    if (WiFi.status() == WL_CONNECTED) bambu.connect();
+    req->send(200, "application/json", "{\"success\":true}");
   });
 
   server.on("/ledconf.json", HTTP_GET, [&](AsyncWebServerRequest* req) {
