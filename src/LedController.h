@@ -2,7 +2,6 @@
 
 #include <Arduino.h>
 #include <FastLED.h>
-#include <ArduinoJson.h>
 
 class Settings;
 
@@ -15,17 +14,22 @@ public:
   void loop();
 
   void applySettingsFrom(Settings& settings);
-  void ingestBambuReport(JsonObjectConst report, uint32_t nowMs);
+  void ingestBambuReport(uint32_t nowMs);
   void setMqttConnected(bool connected, uint32_t nowMs);
   void setHmsSeverity(uint8_t sev);
   void setWifiConnected(bool connected);
   void setPrintProgress(uint8_t percent);
   void setDownloadProgress(uint8_t percent);
+  void setOtaProgress(uint8_t percent);
+  void setOtaProgressManual(bool active, uint8_t percent);
+  bool otaManualActive() const { return _st.otaProgressManualActive; }
+  void setUpdateAvailable(bool available);
   void setThermalState(bool heating, bool cooling);
   void setPaused(bool paused);
   void setFinished(bool finished);
 
   void startSelfTest();
+  bool bootTestActive() const { return _bootTestActive; }
 
   void setBrightness(uint8_t b);
   void clear(bool showNow = true);
@@ -37,6 +41,7 @@ public:
   void testSetMqtt(bool ok);
   void testSetPrintProgress(uint8_t percent);
   void testSetDownloadProgress(uint8_t percent);
+  void testSetUpdateAvailable(bool available);
 
   uint8_t  segments() const { return _segments; }
   uint16_t ledsPerSegment() const { return _perSeg; }
@@ -66,6 +71,10 @@ private:
     bool     wifiOk = false;
     uint8_t  printProgress = 255;    // 0-100, 255 = unknown/off
     uint8_t  downloadProgress = 255; // 0-100, 255 = unknown/off
+    uint8_t  otaProgress = 255;      // 0-100, 255 = off
+    uint8_t  otaProgressManual = 255; // 0-100, 255 = off
+    bool     otaProgressManualActive = false;
+    bool     updateAvailable = false;
     bool     heating = false;
     bool     cooling = false;
     bool     paused = false;
@@ -92,7 +101,6 @@ private:
   void showIfDirty();
 
   void tick(uint32_t nowMs);
-  void deriveStateFromReport(JsonObjectConst report, uint32_t nowMs);
   void render(uint32_t nowMs);
 
 private:

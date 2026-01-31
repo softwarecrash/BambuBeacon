@@ -42,9 +42,40 @@ body{
   display:flex;align-items:center;justify-content:center;gap:10px;
   margin:8px 0 14px;
 }
+.title-stack{display:flex;flex-direction:column;gap:2px;align-items:center}
+.title-row{display:flex;align-items:center;gap:8px}
+.title-sub{font-size:11px;color:var(--bb-text-2);font-weight:650;text-align:center}
+.hms-row{display:flex;align-items:center;gap:10px;justify-content:center}
+.hms-text{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:750;
+  color:var(--bb-text);
+  font-size:16px;
+  border:2px solid var(--bb-primary);
+  border-radius:var(--radius);
+  padding:12px 14px;
+}
+.wifi-icon{
+  display:inline-flex;align-items:flex-end;gap:2px;
+  height:18px;min-width:22px;opacity:.9;
+}
+.wifi-icon i{
+  display:block;width:3px;background:var(--bb-primary);opacity:.25;
+  border-radius:2px;
+}
+.wifi-icon i:nth-child(1){height:4px}
+.wifi-icon i:nth-child(2){height:7px}
+.wifi-icon i:nth-child(3){height:10px}
+.wifi-icon i:nth-child(4){height:13px}
+.wifi-icon[data-bars="1"] i:nth-child(-n+1){opacity:1}
+.wifi-icon[data-bars="2"] i:nth-child(-n+2){opacity:1}
+.wifi-icon[data-bars="3"] i:nth-child(-n+3){opacity:1}
+.wifi-icon[data-bars="4"] i:nth-child(-n+4){opacity:1}
 
 #logo{
-  width:28px;height:28px;display:block;opacity:.92;
+  width:36px;height:36px;display:block;opacity:.92;
   filter:drop-shadow(0 0 10px rgba(95,175,125,.10));
 }
 
@@ -52,7 +83,7 @@ h1{
   margin:0;
   color:var(--bb-text);
   text-align:center;
-  font-size:1.5rem;
+  font-size:1.8rem;
   font-weight:800;
   letter-spacing:.02em;
 }

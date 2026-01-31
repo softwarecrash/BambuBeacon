@@ -113,8 +113,7 @@ void LedController::applySettingsFrom(Settings& settings) {
   }
 }
 
-void LedController::ingestBambuReport(JsonObjectConst report, uint32_t nowMs) {
-  (void)report;
+void LedController::ingestBambuReport(uint32_t nowMs) {
   _st.hasMqtt = true;
   _st.lastMqttMs = nowMs;
   markDirty();
@@ -152,6 +151,28 @@ void LedController::setPrintProgress(uint8_t percent) {
 void LedController::setDownloadProgress(uint8_t percent) {
   if (_st.downloadProgress != percent) {
     _st.downloadProgress = percent;
+    markDirty();
+  }
+}
+
+void LedController::setOtaProgress(uint8_t percent) {
+  if (_st.otaProgress != percent) {
+    _st.otaProgress = percent;
+    markDirty();
+  }
+}
+
+void LedController::setOtaProgressManual(bool active, uint8_t percent) {
+  if (_st.otaProgressManualActive != active || _st.otaProgressManual != percent) {
+    _st.otaProgressManualActive = active;
+    _st.otaProgressManual = percent;
+    markDirty();
+  }
+}
+
+void LedController::setUpdateAvailable(bool available) {
+  if (_st.updateAvailable != available) {
+    _st.updateAvailable = available;
     markDirty();
   }
 }
@@ -199,6 +220,10 @@ void LedController::setTestMode(bool enabled) {
     _test.hmsSev = 0;
     _test.printProgress = 255;
     _test.downloadProgress = 255;
+    _test.otaProgress = 255;
+    _test.otaProgressManual = 255;
+    _test.otaProgressManualActive = false;
+    _test.updateAvailable = false;
     _test.heating = false;
     _test.cooling = false;
     _test.paused = false;
@@ -275,6 +300,12 @@ void LedController::testSetDownloadProgress(uint8_t percent) {
   if (!_testMode) return;
   if (percent > 100) percent = 100;
   _test.downloadProgress = percent;
+  markDirty();
+}
+
+void LedController::testSetUpdateAvailable(bool available) {
+  if (!_testMode) return;
+  _test.updateAvailable = available;
   markDirty();
 }
 
@@ -364,16 +395,30 @@ void LedController::tickBootTest(uint32_t nowMs) {
 
 /* ================= Core ================= */
 
-void LedController::deriveStateFromReport(JsonObjectConst report, uint32_t nowMs) {
-  (void)report;
-  _st.hasMqtt = true;
-  _st.lastMqttMs = nowMs;
-}
-
 void LedController::render(uint32_t nowMs) {
   const uint32_t MQTT_STALE_MS = 15000;
   RenderState& st = _testMode ? _test : _st;
   const bool mqttOk = st.hasMqtt && (_testMode || (uint32_t)(nowMs - st.lastMqttMs) <= MQTT_STALE_MS);
+
+  uint8_t otaPct = 255;
+  if (st.otaProgressManualActive) {
+    otaPct = st.otaProgressManual;
+  } else if (st.otaProgress <= 100) {
+    otaPct = st.otaProgress;
+  }
+
+  if (otaPct <= 100 && _segments > 0 && _perSeg > 0) {
+    clear(false);
+    const uint16_t totalLeds = (uint16_t)_segments * _perSeg;
+    const uint16_t lit = (uint32_t)totalLeds * otaPct / 100;
+    CRGB c = CRGB(0, 160, 160);
+    for (uint16_t i = 0; i < lit && i < _count; i++) {
+      const uint16_t idx = (uint16_t)(_count - 1 - i);
+      _leds[idx] = c;
+    }
+    markDirty();
+    return;
+  }
 
   if (!mqttOk) {
     setNoConnection();
@@ -539,6 +584,14 @@ void LedController::render(uint32_t nowMs) {
       for (uint16_t i = 0; i < _perSeg && i < lit; i++) {
         _leds[segStart(2) + i] = CRGB::Green;
       }
+    } else if (st.updateAvailable) {
+      const uint16_t base = segStart(2);
+      const uint16_t pos = 0;
+      uint8_t pulse = sin8((nowMs / 20) & 0xFF);
+      uint8_t level = scale8(pulse, 70) + 8;
+      CRGB c = CRGB(0, 160, 160);
+      c.nscale8_video(level);
+      _leds[base + pos] = c;
     }
   }
 
