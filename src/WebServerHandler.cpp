@@ -219,6 +219,7 @@ void WebServerHandler::handleSubmitPrinterConfig(AsyncWebServerRequest* req) {
 
   const uint16_t oldSeg = settings.get.LEDSegments();
   const uint16_t oldPer = settings.get.LEDperSeg();
+  const uint16_t oldColorOrder = settings.get.LEDColorOrder();
 
   settings.set.printerIP(getP("printerip"));
   settings.set.printerUSN(getP("printerusn"));
@@ -251,6 +252,13 @@ void WebServerHandler::handleSubmitPrinterConfig(AsyncWebServerRequest* req) {
     settings.set.LEDReverseOrder(enabled);
   }
 
+  if (req->hasParam("ledcolororder", true)) {
+    long v = getP("ledcolororder").toInt();
+    if (v < 0) v = 0;
+    if (v > 5) v = 5;
+    settings.set.LEDColorOrder((uint16_t)v);
+  }
+
   if (req->hasParam("idletimeout", true)) {
     long v = getP("idletimeout").toInt();
     if (v < 0) v = 0;
@@ -266,7 +274,9 @@ void WebServerHandler::handleSubmitPrinterConfig(AsyncWebServerRequest* req) {
 
   req->send(200, "application/json", "{\"success\":true}");
 
-  if (settings.get.LEDSegments() != oldSeg || settings.get.LEDperSeg() != oldPer) {
+  if (settings.get.LEDSegments() != oldSeg ||
+      settings.get.LEDperSeg() != oldPer ||
+      settings.get.LEDColorOrder() != oldColorOrder) {
     scheduleRestart(600);
   }
 }
@@ -580,6 +590,7 @@ void WebServerHandler::begin() {
     doc["ledSegments"] = settings.get.LEDSegments();
     doc["ledPerSeg"] = settings.get.LEDperSeg();
     doc["ledMaxCurrentmA"] = settings.get.LEDMaxCurrentmA();
+    doc["ledColorOrder"] = settings.get.LEDColorOrder();
     doc["ledReverseOrder"] = settings.get.LEDReverseOrder();
     doc["idleTimeoutMin"] = settings.get.idleTimeoutMin();
 

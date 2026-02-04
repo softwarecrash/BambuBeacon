@@ -21,13 +21,13 @@
       <button type="button" class="btn btn-outline" id="searchPrintersBtn">Search Printer</button>
 
       <label for="printerip">Printer IP</label>
-      <input type="text" id="printerip" autocomplete="off" placeholder="192.168.1.50" required />
+      <input type="text" id="printerip" autocomplete="off" placeholder="192.168.1.50" />
 
       <label for="printerusn">USN</label>
-      <input type="text" id="printerusn" autocomplete="off" required />
+      <input type="text" id="printerusn" autocomplete="off" />
 
       <label for="printerac">Access Key</label>
-      <input type="password" id="printerac" autocomplete="new-password" required />
+      <input type="password" id="printerac" autocomplete="new-password" />
 
       <label for="idletimeout">Idle Timeout (min)</label>
       <input type="number" id="idletimeout" min="0" max="240" step="1" required />
@@ -43,6 +43,16 @@
 
       <label for="ledmaxcurrent">Max LED Current (mA)</label>
       <input type="number" id="ledmaxcurrent" min="100" max="5000" step="50" required />
+
+      <label for="ledcolororder">LED Color Order</label>
+      <select id="ledcolororder" required>
+        <option value="0">GRB (Default)</option>
+        <option value="1">RGB</option>
+        <option value="2">BRG</option>
+        <option value="3">RBG</option>
+        <option value="4">GBR</option>
+        <option value="5">BGR</option>
+      </select>
 
       <label for="ledreverse">LED Order</label>
       <select id="ledreverse" required>
@@ -112,6 +122,7 @@
       const segEl = document.getElementById("ledsegments");
       const perEl = document.getElementById("ledperseg");
       const maxEl = document.getElementById("ledmaxcurrent");
+      const colorEl = document.getElementById("ledcolororder");
       const revEl = document.getElementById("ledreverse");
       const idleEl = document.getElementById("idletimeout");
 
@@ -121,23 +132,22 @@
       const seg = parseInt(segEl.value, 10);
       const per = parseInt(perEl.value, 10);
       const maxmA = parseInt(maxEl.value, 10);
+      const color = parseInt(colorEl.value, 10);
       const rev = parseInt(revEl.value, 10);
       const idle = parseInt(idleEl.value, 10);
 
-      ipEl.classList.toggle("invalid", !ip);
-      usnEl.classList.toggle("invalid", !usn);
-      acEl.classList.toggle("invalid", !ac);
       segEl.classList.toggle("invalid", !(seg === 2 || seg === 3));
       perEl.classList.toggle("invalid", !(Number.isInteger(per) && per >= 1 && per <= 64));
       maxEl.classList.toggle("invalid", !(Number.isInteger(maxmA) && maxmA >= 100 && maxmA <= 5000));
+      colorEl.classList.toggle("invalid", !(Number.isInteger(color) && color >= 0 && color <= 5));
       revEl.classList.toggle("invalid", !(rev === 0 || rev === 1));
       idleEl.classList.toggle("invalid", !(Number.isInteger(idle) && idle >= 0 && idle <= 240));
 
       document.getElementById("savePrinterBtn").disabled =
-        !(ip && usn && ac &&
-          (seg === 2 || seg === 3) &&
+        !((seg === 2 || seg === 3) &&
           (Number.isInteger(per) && per >= 1 && per <= 64) &&
           (Number.isInteger(maxmA) && maxmA >= 100 && maxmA <= 5000) &&
+          (Number.isInteger(color) && color >= 0 && color <= 5) &&
           (rev === 0 || rev === 1) &&
           (Number.isInteger(idle) && idle >= 0 && idle <= 240));
     }
@@ -208,6 +218,7 @@
         document.getElementById("ledsegments").value = String(c.ledSegments || 3);
         document.getElementById("ledperseg").value = String(c.ledPerSeg || 12);
         document.getElementById("ledmaxcurrent").value = String(c.ledMaxCurrentmA || 500);
+        document.getElementById("ledcolororder").value = String(c.ledColorOrder ?? 0);
         document.getElementById("ledreverse").value = (c.ledReverseOrder ? "1" : "0");
         document.getElementById("idletimeout").value = String(c.idleTimeoutMin ?? 15);
       } catch {}
@@ -224,6 +235,7 @@
           `&ledsegments=${encodeURIComponent(document.getElementById("ledsegments").value)}` +
           `&ledperseg=${encodeURIComponent(document.getElementById("ledperseg").value)}` +
           `&ledmaxcurrent=${encodeURIComponent(document.getElementById("ledmaxcurrent").value)}` +
+          `&ledcolororder=${encodeURIComponent(document.getElementById("ledcolororder").value)}` +
           `&ledreverse=${encodeURIComponent(document.getElementById("ledreverse").value)}` +
           `&idletimeout=${encodeURIComponent(document.getElementById("idletimeout").value)}`;
 
@@ -245,7 +257,7 @@
     document.getElementById("modal-backdrop").addEventListener("click", (e) => {
       if (e.target.id === "modal-backdrop") closeModal();
     });
-    ["printerip", "printerusn", "printerac", "ledsegments", "ledperseg", "ledmaxcurrent", "ledreverse", "idletimeout"].forEach(id => {
+    ["printerip", "printerusn", "printerac", "ledsegments", "ledperseg", "ledmaxcurrent", "ledcolororder", "ledreverse", "idletimeout"].forEach(id => {
       document.getElementById(id).addEventListener("input", updateSaveState);
     });
 

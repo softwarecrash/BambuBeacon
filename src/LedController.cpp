@@ -72,7 +72,28 @@ bool LedController::begin(Settings& settings) {
 #error "LED_PIN must be defined via build_flags"
 #endif
 
-  FastLED.addLeds<WS2812B, LED_PIN, GRB>(_leds, _count);
+  const uint16_t colorOrder = settings.get.LEDColorOrder();
+  switch (colorOrder) {
+    case 1:
+      FastLED.addLeds<WS2812B, LED_PIN, RGB>(_leds, _count);
+      break;
+    case 2:
+      FastLED.addLeds<WS2812B, LED_PIN, BRG>(_leds, _count);
+      break;
+    case 3:
+      FastLED.addLeds<WS2812B, LED_PIN, RBG>(_leds, _count);
+      break;
+    case 4:
+      FastLED.addLeds<WS2812B, LED_PIN, GBR>(_leds, _count);
+      break;
+    case 5:
+      FastLED.addLeds<WS2812B, LED_PIN, BGR>(_leds, _count);
+      break;
+    case 0:
+    default:
+      FastLED.addLeds<WS2812B, LED_PIN, GRB>(_leds, _count);
+      break;
+  }
   FastLED.setBrightness(_brightness);
   FastLED.setMaxPowerInVoltsAndMilliamps(5, _maxCurrentmA);
 
