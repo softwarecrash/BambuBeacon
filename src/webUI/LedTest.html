@@ -48,6 +48,10 @@
         <input type="checkbox" id="wifiOk" checked />
         Wi-Fi Connected
       </label>
+      <label>
+        <input type="checkbox" id="updateAvailable" />
+        Update Available
+      </label>
 
       <label for="printProgress">Print Progress</label>
       <input type="range" id="printProgress" min="0" max="100" value="0" />
@@ -97,6 +101,10 @@
 
     document.getElementById("downloadProgress").addEventListener("change", (e) => {
       post("download", e.target.value);
+    });
+
+    document.getElementById("updateAvailable").addEventListener("change", (e) => {
+      post("update", e.target.checked ? "1" : "0");
     });
   </script>
   <script src="/footer.js"></script>

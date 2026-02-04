@@ -217,13 +217,22 @@ void WebServerHandler::handleSubmitPrinterConfig(AsyncWebServerRequest* req) {
     return req->getParam(name, true)->value();
   };
 
+  const String oldIp = settings.get.printerIP() ? settings.get.printerIP() : "";
+  const String oldUsn = settings.get.printerUSN() ? settings.get.printerUSN() : "";
+
   const uint16_t oldSeg = settings.get.LEDSegments();
   const uint16_t oldPer = settings.get.LEDperSeg();
   const uint16_t oldColorOrder = settings.get.LEDColorOrder();
 
-  settings.set.printerIP(getP("printerip"));
-  settings.set.printerUSN(getP("printerusn"));
+  const String newIp = getP("printerip");
+  const String newUsn = getP("printerusn");
+  settings.set.printerIP(newIp);
+  settings.set.printerUSN(newUsn);
   settings.set.printerAC(getP("printerac"));
+
+  if (newIp != oldIp || newUsn != oldUsn) {
+    settings.set.printerCert("");
+  }
 
   if (req->hasParam("ledsegments", true)) {
     long v = getP("ledsegments").toInt();
@@ -318,6 +327,9 @@ void WebServerHandler::handleLedTestCmd(AsyncWebServerRequest* req) {
     if (v < 0) v = 0;
     if (v > 100) v = 100;
     ledsCtrl.testSetDownloadProgress((uint8_t)v);
+  } else if (action == "update") {
+    const bool available = (value == "1" || value == "true" || value == "on");
+    ledsCtrl.testSetUpdateAvailable(available);
   } else {
     req->send(400, "application/json", "{\"success\":false}");
     return;
@@ -492,12 +504,21 @@ void WebServerHandler::begin() {
     }
   );
 
+  static bool mqttPausedForUpdate = false;
+
   server.on("/update", HTTP_POST,
     [&](AsyncWebServerRequest* req) {
       if (!wifiManager.isApMode()) {
         if (!isAuthorized(req)) return req->requestAuthentication();
       }
       const bool ok = !Update.hasError();
+      if (!ok) {
+        ledsCtrl.setOtaProgressManual(false, 255);
+      }
+      if (!ok && mqttPausedForUpdate) {
+        mqttPausedForUpdate = false;
+        if (WiFi.status() == WL_CONNECTED) bambu.connect();
+      }
       req->send(ok ? 200 : 500, "application/json", ok ? "{\"success\":true}" : "{\"success\":false}");
       if (ok) scheduleRestart(2500);
     },
@@ -505,6 +526,12 @@ void WebServerHandler::begin() {
       (void)filename;
       if (!wifiManager.isApMode() && !isAuthorized(req)) return;
       if (index == 0) {
+        if (!mqttPausedForUpdate) {
+          bambu.disconnect();
+          mqttPausedForUpdate = true;
+          webSerial.println("[MQTT] Paused for OTA");
+        }
+        ledsCtrl.setOtaProgressManual(true, 0);
         if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
           Update.printError(webSerial);
         }
@@ -512,9 +539,24 @@ void WebServerHandler::begin() {
       if (Update.write(data, len) != len) {
         Update.printError(webSerial);
       }
+      if (req && req->contentLength() > 0) {
+        const size_t totalLen = req->contentLength();
+        uint32_t done = (uint32_t)(index + len);
+        if (done > totalLen) done = (uint32_t)totalLen;
+        uint8_t pct = (uint8_t)((done * 100ULL) / totalLen);
+        ledsCtrl.setOtaProgressManual(true, pct);
+      }
       if (final) {
-        if (!Update.end(true)) {
+        const bool ok = Update.end(true);
+        if (!ok) {
           Update.printError(webSerial);
+          ledsCtrl.setOtaProgressManual(false, 255);
+          if (mqttPausedForUpdate) {
+            mqttPausedForUpdate = false;
+            if (WiFi.status() == WL_CONNECTED) bambu.connect();
+          }
+        } else {
+          ledsCtrl.setOtaProgressManual(true, 100);
         }
       }
     }
@@ -587,6 +629,7 @@ void WebServerHandler::begin() {
     doc["printerIP"] = settings.get.printerIP();
     doc["printerUSN"] = settings.get.printerUSN();
     doc["printerAC"] = settings.get.printerAC();
+    doc["hmsIgnore"] = settings.get.hmsIgnore();
     doc["ledSegments"] = settings.get.LEDSegments();
     doc["ledPerSeg"] = settings.get.LEDperSeg();
     doc["ledMaxCurrentmA"] = settings.get.LEDMaxCurrentmA();
@@ -597,6 +640,85 @@ void WebServerHandler::begin() {
     String out;
     serializeJson(doc, out);
     req->send(200, "application/json", out);
+  });
+
+  server.on("/hmsignore.json", HTTP_GET, [&](AsyncWebServerRequest* req) {
+    if (!wifiManager.isApMode()) {
+      if (!isAuthorized(req)) return req->requestAuthentication();
+    }
+
+    JsonDocument doc;
+    doc["hmsIgnore"] = settings.get.hmsIgnore();
+    String out;
+    serializeJson(doc, out);
+    req->send(200, "application/json", out);
+  });
+
+  server.on("/setHmsIgnore", HTTP_POST, [&](AsyncWebServerRequest* req) {
+    if (!wifiManager.isApMode()) {
+      if (!isAuthorized(req)) return req->requestAuthentication();
+    }
+    const String v = req->hasParam("hmsignore", true) ? req->getParam("hmsignore", true)->value() : "";
+    settings.set.hmsIgnore(v);
+    settings.save();
+    bambu.reloadFromSettings();
+    if (WiFi.status() == WL_CONNECTED) bambu.connect();
+    req->send(200, "application/json", "{\"success\":true}");
+  });
+
+  server.on("/hms.json", HTTP_GET, [&](AsyncWebServerRequest* req) {
+    if (!wifiManager.isApMode()) {
+      if (!isAuthorized(req)) return req->requestAuthentication();
+    }
+
+    JsonDocument doc;
+    BambuMqttClient::HmsEvent events[20];
+    const size_t n = bambu.getActiveEvents(events, 20);
+    if (n == 0) {
+      doc["present"] = false;
+    } else {
+      size_t best = 0;
+      for (size_t i = 1; i < n; i++) {
+        if ((uint8_t)events[i].severity > (uint8_t)events[best].severity) {
+          best = i;
+        } else if (events[i].severity == events[best].severity &&
+                   events[i].lastSeenMs > events[best].lastSeenMs) {
+          best = i;
+        }
+      }
+      doc["present"] = true;
+      doc["code"] = events[best].codeStr;
+      doc["severity"] = (uint8_t)events[best].severity;
+      doc["count"] = (uint32_t)events[best].count;
+    }
+    String out;
+    serializeJson(doc, out);
+    req->send(200, "application/json", out);
+  });
+
+  server.on("/hmsignore/add", HTTP_POST, [&](AsyncWebServerRequest* req) {
+    if (!wifiManager.isApMode()) {
+      if (!isAuthorized(req)) return req->requestAuthentication();
+    }
+    String code = req->hasParam("code", true) ? req->getParam("code", true)->value() : "";
+    code.trim();
+    code.toUpperCase();
+    if (!code.length()) {
+      return req->send(400, "application/json", "{\"success\":false}");
+    }
+    String current = settings.get.hmsIgnore();
+    String currentUpper = current;
+    currentUpper.toUpperCase();
+    if (currentUpper.indexOf(code) < 0) {
+      if (current.length() && current[current.length() - 1] != '\n') current += "\n";
+      current += code;
+      current += "\n";
+      settings.set.hmsIgnore(current);
+      settings.save();
+      bambu.reloadFromSettings();
+      if (WiFi.status() == WL_CONNECTED) bambu.connect();
+    }
+    req->send(200, "application/json", "{\"success\":true}");
   });
 
   server.on("/ledconf.json", HTTP_GET, [&](AsyncWebServerRequest* req) {

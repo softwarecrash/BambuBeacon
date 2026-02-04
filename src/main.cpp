@@ -29,12 +29,20 @@ void setup() {
   settings.begin();
   webSerial.setAuthentication(settings.get.webUIuser(), settings.get.webUIPass());
   ota.begin();
+  ota.setUpdateActivityCallback([](bool active) {
+    if (active) {
+      webSerial.println("[MQTT] Paused for OTA");
+      bambu.disconnect();
+    } else if (WiFi.status() == WL_CONNECTED) {
+      bambu.connect();
+    }
+  });
   ledsCtrl.begin(settings);
   wifiManager.begin();
   web.begin();
 
-  bambu.onReport([](const JsonDocument& doc) {
-    ledsCtrl.ingestBambuReport(doc.as<JsonObjectConst>(), millis());
+  bambu.onReport([](uint32_t nowMs) {
+    ledsCtrl.ingestBambuReport(nowMs);
   });
  bambu.begin(settings);
 
@@ -49,17 +57,51 @@ printerDiscovery.forceRescan(2000UL);      // first scan shortly after boot
 }
 
 void loop() {
+  ledsCtrl.loop();
+  if (ledsCtrl.bootTestActive()) {
+    return;
+  }
   wifiManager.loop();
   printerDiscovery.update();
   if (bambu.isConnected() || !printerDiscovery.isBusy()) {
     bambu.loopTick();
   }
   const uint32_t nowMs = millis();
+  static bool otaAutoInit = false;
+  static bool otaAutoDisabled = false;
+  static bool otaCheckInFlight = false;
+  static uint32_t otaNextCheckMs = 0;
+  if (!otaAutoInit) {
+    otaAutoInit = true;
+    otaNextCheckMs = nowMs + 60000UL;
+  }
+  if (!otaAutoDisabled) {
+    if (!otaCheckInFlight && !ota.isBusy()) {
+      if ((int32_t)(nowMs - otaNextCheckMs) >= 0) {
+        if (WiFi.status() == WL_CONNECTED) {
+          if (ota.requestCheck()) {
+            otaCheckInFlight = true;
+          }
+        }
+      }
+    }
+    if (otaCheckInFlight) {
+      bool netFail = false;
+      if (ota.takeLastCheckResult(&netFail)) {
+        otaCheckInFlight = false;
+        if (netFail) {
+          otaAutoDisabled = true;
+        } else {
+          otaNextCheckMs = nowMs + 12UL * 60UL * 60UL * 1000UL;
+        }
+      }
+    }
+  }
   ledsCtrl.setMqttConnected(bambu.isConnected(), nowMs);
   ledsCtrl.setHmsSeverity((uint8_t)bambu.topSeverity());
   ledsCtrl.setWifiConnected(WiFi.status() == WL_CONNECTED);
 
-  const String& gstate = bambu.gcodeState();
+  const String gstate = bambu.gcodeState();
   const bool finished = (gstate == "FINISH" || gstate == "FINISHED" || gstate == "DONE");
   const bool paused = (gstate == "PAUSE" || gstate == "PAUSED");
   const bool printing = (gstate == "RUNNING" || gstate == "PRINTING" || paused || gstate == "PREPARE");
@@ -69,6 +111,10 @@ void loop() {
 
   uint8_t pp = bambu.printProgress();
   ledsCtrl.setPrintProgress((printing && pp <= 100 && pp < 100) ? pp : 255);
+  ledsCtrl.setUpdateAvailable(ota.isUpdateAvailable());
+  if (!ledsCtrl.otaManualActive()) {
+    ledsCtrl.setOtaProgress(ota.isDownloading() ? ota.progressPercent() : 255);
+  }
 
   bool heating = false;
   bool cooling = false;

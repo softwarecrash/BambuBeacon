@@ -37,12 +37,10 @@ void WiFiManager::startConnectAttempt() {
   WiFi.mode(_apMode ? WIFI_AP_STA : WIFI_STA);
   WiFi.setHostname(settings.get.deviceName());
   WiFi.setSleep(false);
-#ifdef ARDUINO_ARCH_ESP32
 #ifdef LOLIN_WIFI_FIX
   WiFi.setTxPower(WIFI_POWER_8_5dBm);
 #else
   WiFi.setTxPower(WIFI_POWER_19_5dBm);
-#endif
 #endif
 
   // Optional static IP
@@ -131,12 +129,10 @@ void WiFiManager::startAP() {
 
   String apName = String("BambuBeacon-") + String((uint32_t)ESP.getEfuseMac(), HEX);
   WiFi.softAP(apName.c_str()); // open for now
-#ifdef ARDUINO_ARCH_ESP32
 #ifdef LOLIN_WIFI_FIX
   WiFi.setTxPower(WIFI_POWER_8_5dBm);
 #else
   WiFi.setTxPower(WIFI_POWER_19_5dBm);
-#endif
 #endif
 
   dns.start(53, "*", apIP);

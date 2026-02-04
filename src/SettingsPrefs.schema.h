@@ -31,6 +31,8 @@
   X(STRING, "device",   "printerUSN",         printerUSN,       "",          0,     0) \
   X(STRING, "device",   "printerIP",          printerIP,        "",          0,     0) \
   X(STRING, "device",   "printerAC",          printerAC,        "",          0,     0) \
+  X(STRING, "device",   "printerCert",        printerCert,      "",          0,     0) \
+  X(STRING, "device",   "hmsIgnore",          hmsIgnore,        "",          0,     0) \
   X(UINT16, "device",   "LEDperSeg",          LEDperSeg,        12,          1,     64) \
   X(UINT16, "device",   "LEDSegments",        LEDSegments,      3,           2,     3) \
   X(UINT16, "device",   "LEDBrightness",      LEDBrightness,    50,         0,     255) \

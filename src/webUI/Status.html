@@ -11,8 +11,16 @@
 
   <div id="container">
     <div id="header">
-      <a href="/"><img id="logo" src="/logo.svg" alt="Logo" /></a>
-      <h1>BambuBeacon</h1>
+      <div class="title-stack">
+        <div class="title-row">
+          <a href="/"><img id="logo" src="/logo.svg" alt="Logo" /></a>
+          <h1 id="deviceName">BambuBeacon</h1>
+          <span class="wifi-icon" id="wifiIcon" aria-label="Wi-Fi signal" title="RSSI: ? dBm">
+            <i></i><i></i><i></i><i></i>
+          </span>
+        </div>
+        <div class="title-sub" id="deviceIp">IP: --</div>
+      </div>
     </div>
 
     <div class="panel">
@@ -23,13 +31,25 @@
       </div>
     </div>
 
-    <div class="panel">
-      <div class="panel-title">Device</div>
-      <div id="deviceInfo" style="color: var(--bb-text-2); font-weight: 650;">Loading…</div>
+    <div class="panel" id="updateNotice" style="display:none;">
+      <div class="panel-title">Update available</div>
+      <div class="button-stack actions">
+        <button class="btn" id="updateNoticeBtn" onclick="location.href='/maintenance'">Open Maintenance</button>
+      </div>
     </div>
 
+    <div class="panel" id="hmsPanel" style="display:none;">
+      <div class="panel-title">HMS Alert</div>
+      <div class="hms-row">
+        <div class="hms-text" id="hmsText">HMS_0001_0002_0003_0004</div>
+        <button class="btn btn-outline hms-btn" id="hmsIgnoreBtn">Ignore</button>
+      </div>
+      <div class="inline-info" id="hmsMeta">Severity: Warning  ·  Count: 1</div>
+    </div>
+
+
     <div class="panel">
-      <div class="panel-title">Setup</div>
+      <div class="panel-title">Menu</div>
       <div class="button-stack">
         <button class="btn btn-outline" onclick="location.href='/wifisetup'">Wi-Fi / Network</button>
         <button class="btn btn-outline" onclick="location.href='/printersetup'">Printer Setup</button>
@@ -44,21 +64,98 @@
 
   <script src="/backgroundCanvas.js"></script>
   <script>
+    function rssiToBars(rssi) {
+      if (rssi == null) return 0;
+      const v = Number(rssi);
+      if (v >= -55) return 4;
+      if (v >= -65) return 3;
+      if (v >= -75) return 2;
+      if (v >= -85) return 1;
+      return 0;
+    }
+
     async function loadInfo() {
       try {
         const r = await fetch("/info.json");
         const j = await r.json();
-        const el = document.getElementById("deviceInfo");
-        el.innerHTML =
-          `Name: <b>${j.deviceName || "BambuBeacon"}</b><br>` +
-          `Mode: <b>${j.mode || "?"}</b><br>` +
-          `IP: <b>${j.ip || "?"}</b><br>` +
-          `RSSI: <b>${(j.rssi != null ? j.rssi : "?")}</b>`;
+        document.getElementById("deviceName").textContent = j.deviceName || "BambuBeacon";
+        document.getElementById("deviceIp").textContent = `IP: ${j.ip || "?"}`;
+        const bars = rssiToBars(j.rssi);
+        const icon = document.getElementById("wifiIcon");
+        icon.setAttribute("data-bars", String(bars));
+        const rssiVal = (j.rssi != null) ? String(j.rssi) : "?";
+        icon.setAttribute("title", `RSSI: ${rssiVal} dBm`);
       } catch {
-        document.getElementById("deviceInfo").textContent = "Failed to load device info.";
+        document.getElementById("deviceIp").textContent = "IP: ?";
+        const icon = document.getElementById("wifiIcon");
+        icon.setAttribute("data-bars", "0");
+        icon.setAttribute("title", "RSSI: ? dBm");
       }
     }
     loadInfo();
+    loadHms();
+
+    async function loadHms() {
+      try {
+        const r = await fetch("/hms.json", { cache: "no-store" });
+        if (!r.ok) return;
+        const j = await r.json();
+        const panel = document.getElementById("hmsPanel");
+        if (!j.present) {
+          panel.style.display = "none";
+          return;
+        }
+        panel.style.display = "";
+        document.getElementById("hmsText").textContent = j.code || "HMS";
+        const sev = (j.severity != null) ? j.severity : 0;
+        const sevStr = (sev === 4) ? "Fatal" :
+                       (sev === 3) ? "Error" :
+                       (sev === 2) ? "Warning" :
+                       (sev === 1) ? "Info" : "None";
+        document.getElementById("hmsMeta").textContent =
+          `Severity: ${sevStr}` + (j.count ? `  ·  Count: ${j.count}` : "");
+      } catch {}
+    }
+
+    document.getElementById("hmsIgnoreBtn").addEventListener("click", async () => {
+      const code = document.getElementById("hmsText").textContent.trim();
+      if (!code) return;
+      const body = `code=${encodeURIComponent(code)}`;
+      try {
+        const res = await fetch("/hmsignore/add", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body
+        });
+        if (res.ok) {
+          loadHms();
+        }
+      } catch {}
+    });
+
+    async function loadUpdateNotice() {
+      try {
+        const r = await fetch("/ota/status", { cache: "no-store" });
+        if (!r.ok) return;
+        const j = await r.json();
+        if (j && j.state === "update_available") {
+          const panel = document.getElementById("updateNotice");
+          const btn = document.getElementById("updateNoticeBtn");
+          const cur = j.current || "";
+          const latest = j.latest || "";
+          if (cur && latest) {
+            btn.textContent = `Update ${cur} → ${latest} available`;
+          } else if (latest) {
+            btn.textContent = `Update to ${latest} available`;
+          } else {
+            btn.textContent = "Update available";
+          }
+          panel.style.display = "";
+        }
+      } catch {}
+    }
+    loadUpdateNotice();
+    setInterval(loadHms, 3000);
 
     const ledSlider = document.getElementById("ledBrightness");
     const ledValue = document.getElementById("ledBrightnessValue");
