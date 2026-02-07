@@ -6,7 +6,7 @@
       "chipFamily": "ESP32",
       "parts": [
         {
-          "path": "./firmware/BambuBeacon_wemos_d1_mini32_V1.0.2.bin",
+          "path": "./firmware/BambuBeacon_wemos_d1_mini32_V1.1.0.bin",
           "offset": 0
         }
       ]
