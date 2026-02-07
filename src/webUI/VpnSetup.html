@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>BambuBeacon VPN</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    .status-line { margin-bottom: 10px; font-weight: 700; color: var(--bb-text); }
+    .status-subline { margin-top: 4px; font-size: 12px; color: var(--bb-text-2); }
+    .import-box {
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .enable-toggle-btn {
+      width: 100%;
+      margin-top: 8px;
+      margin-bottom: 10px;
+    }
+    .import-warnings {
+      display: none;
+      margin-top: 8px;
+      padding: 8px 10px;
+      border: 1px solid rgba(201, 135, 135, 0.6);
+      border-radius: 10px;
+      background: rgba(201, 135, 135, 0.12);
+      font-size: 12px;
+      color: var(--bb-text);
+      white-space: pre-line;
+    }
+    .allowed-help {
+      margin-top: 6px;
+      margin-bottom: 6px;
+    }
+    .key-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px;
+      margin-bottom: 10px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .key-card .inline-info {
+      margin-bottom: 6px;
+    }
+    #toast {
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 9999;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="particleCanvas"></canvas>
+
+  <div id="container">
+    <div id="header">
+      <a href="/"><img id="logo" src="/logo.svg" alt="Logo" /></a>
+      <h1>VPN</h1>
+    </div>
+
+    <form id="vpnForm" class="panel">
+      <div class="panel-title">WireGuard VPN</div>
+      <div class="status-line" id="vpnStatusLine">VPN: DISCONNECTED</div>
+      <div class="status-subline" id="vpnHandshakeLine">Last handshake: n/a</div>
+
+      <button type="button" class="btn btn-outline enable-toggle-btn" id="enabledToggleBtn" aria-pressed="false">Disabled</button>
+
+      <div class="detailSplitter">Import WireGuard config (.conf)</div>
+      <div class="import-box">
+        <input id="wgImportFile" type="file" accept=".conf,.txt" style="display:none;" />
+        <div class="button-stack actions" style="margin-top:8px;">
+          <button type="button" class="btn btn-outline" id="importBtn">Import config</button>
+        </div>
+        <div id="importWarnings" class="import-warnings"></div>
+      </div>
+
+      <label for="local_ip">Local interface IP address</label>
+      <input id="local_ip" type="text" placeholder="10.0.0.2" />
+
+      <label for="local_mask">Local subnet mask</label>
+      <input id="local_mask" type="text" placeholder="255.255.255.0" />
+
+      <label for="local_port">Local port</label>
+      <input id="local_port" type="number" min="1" max="65535" step="1" placeholder="33333" />
+
+      <label for="local_gateway">Local gateway</label>
+      <input id="local_gateway" type="text" placeholder="0.0.0.0" />
+
+      <label for="private_key_new">Private key of local interface</label>
+      <div class="key-card">
+        <div class="inline-info" id="privateKeyStored">Stored: No</div>
+        <div class="inline-info" id="privateKeyFp">Fingerprint: n/a</div>
+        <input id="private_key_new" type="password" autocomplete="new-password" placeholder="Set new key (optional)" />
+        <div class="button-stack actions" style="margin-top:8px;">
+          <button type="button" class="btn btn-outline" id="privateKeyClearBtn">Clear key</button>
+        </div>
+      </div>
+
+      <label for="endpoint_host">Endpoint peer address (domain name or IP address)</label>
+      <input id="endpoint_host" type="text" placeholder="vpn.example.com" />
+
+      <label for="endpoint_public_key">Public key of endpoint peer</label>
+      <input id="endpoint_public_key" type="text" placeholder="" />
+
+      <label for="endpoint_port">Endpoint peer port</label>
+      <input id="endpoint_port" type="number" min="1" max="65535" step="1" placeholder="51820" />
+
+      <label for="allowed_ip">Allowed IP addresses</label>
+      <input id="allowed_ip" type="text" placeholder="192.168.50.0/24 or 192.168.50.0" />
+      <div class="inline-info allowed-help" title="Allowed IPs define which remote networks are reachable through the tunnel (printer network only, e.g. 192.168.178.0/24). You can enter CIDR in Allowed IP, or enter IP + mask in separate fields.">
+        Allowed IPs define which remote networks are reachable through the tunnel
+        (printer network only, e.g. 192.168.178.0/24). You can enter CIDR in Allowed IP,
+        or enter IP + mask in separate fields.
+      </div>
+
+      <label for="allowed_mask">Allowed mask</label>
+      <input id="allowed_mask" type="text" placeholder="255.255.255.0" />
+
+      <label for="preshared_key_new">Preshared key</label>
+      <div class="key-card">
+        <div class="inline-info" id="presharedKeyStored">Stored: No</div>
+        <div class="inline-info" id="presharedKeyFp">Fingerprint: n/a</div>
+        <input id="preshared_key_new" type="password" autocomplete="new-password" placeholder="Set new key (optional)" />
+        <div class="button-stack actions" style="margin-top:8px;">
+          <button type="button" class="btn btn-outline" id="presharedKeyClearBtn">Clear key</button>
+        </div>
+      </div>
+
+      <div class="button-stack actions">
+        <button type="submit" class="btn">Save</button>
+        <button type="button" class="btn btn-outline" onclick="location.href='/'">Back</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="toast"><span id="toast-icon">i</span><span id="toast-msg">Placeholder</span></div>
+  <div class="page-footer" id="fwFooter">Firmware v? by SoftWareCrash</div>
+
+  <script src="/backgroundCanvas.js"></script>
+  <script>
+    let statusPoll = null;
+    let enabledState = false;
+    let toastTimer = null;
+
+    const privateKeyState = { has: false, fp: "", fpDisplay: "", clear: false };
+    const presharedKeyState = { has: false, fp: "", fpDisplay: "", clear: false };
+
+    function shortFingerprint(fp) {
+      const value = String(fp || "").trim();
+      if (value.length <= 16) return value;
+      return value.slice(0, 8) + "..." + value.slice(-8);
+    }
+
+    function alertToast(type, message) {
+      const toast = document.getElementById("toast");
+      const icon = document.getElementById("toast-icon");
+      const msg = document.getElementById("toast-msg");
+
+      let iconChar = "i";
+      let borderColor = "rgba(255,255,255,0.18)";
+      const css = getComputedStyle(document.documentElement);
+      switch (String(type).toLowerCase()) {
+        case "success": iconChar = "ok"; borderColor = css.getPropertyValue("--bb-primary"); break;
+        case "error": iconChar = "!"; borderColor = css.getPropertyValue("--bb-warning"); break;
+        case "warning": iconChar = "!"; borderColor = css.getPropertyValue("--bb-warning"); break;
+        default: break;
+      }
+
+      toast.style.borderLeftColor = (borderColor || "").trim() || "#00E5FF";
+      icon.textContent = iconChar;
+      msg.textContent = message;
+      if (toastTimer) {
+        clearTimeout(toastTimer);
+        toastTimer = null;
+      }
+      toast.classList.remove("show");
+      void toast.offsetWidth;
+      toast.classList.add("show");
+      toastTimer = setTimeout(() => {
+        toast.classList.remove("show");
+        toastTimer = null;
+      }, 3000);
+    }
+
+    function renderEnabledToggle() {
+      const btn = document.getElementById("enabledToggleBtn");
+      btn.textContent = enabledState ? "Enabled" : "Disabled";
+      btn.setAttribute("aria-pressed", enabledState ? "true" : "false");
+      if (enabledState) {
+        btn.classList.remove("btn-outline");
+      } else {
+        btn.classList.add("btn-outline");
+      }
+    }
+
+    function renderKeyStates() {
+      const privateNew = document.getElementById("private_key_new").value.trim();
+      const privateStored = privateNew.length ? "Stored: New value pending" : (privateKeyState.has ? "Stored: Yes" : "Stored: No");
+      const privateFp = privateKeyState.fpDisplay || shortFingerprint(privateKeyState.fp);
+      const privateFpText = privateNew.length ? "Fingerprint: will be replaced on save" : ("Fingerprint: " + (privateFp || "n/a"));
+      document.getElementById("privateKeyStored").textContent = privateStored;
+      document.getElementById("privateKeyFp").textContent = privateFpText;
+
+      const pskNew = document.getElementById("preshared_key_new").value.trim();
+      const pskStored = pskNew.length ? "Stored: New value pending" : (presharedKeyState.has ? "Stored: Yes" : "Stored: No");
+      const pskFp = presharedKeyState.fpDisplay || shortFingerprint(presharedKeyState.fp);
+      const pskFpText = pskNew.length ? "Fingerprint: will be replaced on save" : ("Fingerprint: " + (pskFp || "n/a"));
+      document.getElementById("presharedKeyStored").textContent = pskStored;
+      document.getElementById("presharedKeyFp").textContent = pskFpText;
+    }
+
+    function fillForm(cfg) {
+      if (!cfg) return;
+      enabledState = !!cfg.enabled;
+      renderEnabledToggle();
+
+      document.getElementById("local_ip").value = cfg.local_ip || "";
+      document.getElementById("local_mask").value = cfg.local_mask || "";
+      document.getElementById("local_port").value = cfg.local_port || "";
+      document.getElementById("local_gateway").value = cfg.local_gateway || "";
+      document.getElementById("endpoint_host").value = cfg.endpoint_host || "";
+      document.getElementById("endpoint_public_key").value = cfg.endpoint_public_key || "";
+      document.getElementById("endpoint_port").value = cfg.endpoint_port || "";
+      document.getElementById("allowed_ip").value = cfg.allowed_ip || "";
+      document.getElementById("allowed_mask").value = cfg.allowed_mask || "";
+
+      privateKeyState.has = !!cfg.hasPrivateKey;
+      privateKeyState.fp = cfg.privateKeyFp || "";
+      privateKeyState.fpDisplay = cfg.privateKeyFpDisplay || shortFingerprint(privateKeyState.fp);
+      privateKeyState.clear = false;
+      document.getElementById("private_key_new").value = "";
+
+      presharedKeyState.has = !!cfg.hasPresharedKey;
+      presharedKeyState.fp = cfg.presharedKeyFp || "";
+      presharedKeyState.fpDisplay = cfg.presharedKeyFpDisplay || shortFingerprint(presharedKeyState.fp);
+      presharedKeyState.clear = false;
+      document.getElementById("preshared_key_new").value = "";
+
+      renderKeyStates();
+    }
+
+    function updateStatus(status) {
+      const text = (status && status.statusText) ? String(status.statusText) : "DISCONNECTED";
+      document.getElementById("vpnStatusLine").textContent = "VPN: " + text;
+
+      const hs = status && status.lastHandshakeSeconds;
+      if (typeof hs === "number" && hs !== 0 && hs !== 4294967295) {
+        document.getElementById("vpnHandshakeLine").textContent = "Last handshake: " + hs + "s";
+      } else {
+        document.getElementById("vpnHandshakeLine").textContent = "Last handshake: n/a";
+      }
+    }
+
+    function renderImportWarnings(warnings) {
+      const box = document.getElementById("importWarnings");
+      const list = Array.isArray(warnings) ? warnings : [];
+
+      if (!list.length) {
+        box.style.display = "none";
+        box.textContent = "";
+        return;
+      }
+
+      box.style.display = "block";
+      box.textContent = list.map((w, i) => (i + 1) + ". " + w).join("\n");
+    }
+
+    async function fetchVpn() {
+      const res = await fetch("/api/vpn", { cache: "no-store" });
+      if (!res.ok) throw new Error("Request failed");
+      return res.json();
+    }
+
+    async function loadForm() {
+      try {
+        const data = await fetchVpn();
+        fillForm(data.config || {});
+        updateStatus(data.status || {});
+      } catch {
+        updateStatus({ statusText: "DISCONNECTED (API unavailable)" });
+      }
+    }
+
+    async function pollStatus() {
+      try {
+        const data = await fetchVpn();
+        updateStatus(data.status || {});
+      } catch {
+      }
+    }
+
+    function gatherPayload() {
+      const payload = {
+        enabled: enabledState,
+        local_ip: document.getElementById("local_ip").value.trim(),
+        local_mask: document.getElementById("local_mask").value.trim(),
+        local_port: Number(document.getElementById("local_port").value || 0),
+        local_gateway: document.getElementById("local_gateway").value.trim(),
+        endpoint_host: document.getElementById("endpoint_host").value.trim(),
+        endpoint_public_key: document.getElementById("endpoint_public_key").value.trim(),
+        endpoint_port: Number(document.getElementById("endpoint_port").value || 0),
+        allowed_ip: document.getElementById("allowed_ip").value.trim(),
+        allowed_mask: document.getElementById("allowed_mask").value.trim()
+      };
+
+      const privateNew = document.getElementById("private_key_new").value.trim();
+      if (privateNew.length) {
+        payload.privateKeyNew = privateNew;
+      } else if (privateKeyState.clear) {
+        payload.privateKeyClear = true;
+      } else if (privateKeyState.fp) {
+        payload.privateKeyFp = privateKeyState.fp;
+      }
+
+      const pskNew = document.getElementById("preshared_key_new").value.trim();
+      if (pskNew.length) {
+        payload.presharedKeyNew = pskNew;
+      } else if (presharedKeyState.clear) {
+        payload.presharedKeyClear = true;
+      } else if (presharedKeyState.fp) {
+        payload.presharedKeyFp = presharedKeyState.fp;
+      }
+
+      return payload;
+    }
+
+    async function saveVpn(payload) {
+      const res = await fetch("/api/vpn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.reason || ("HTTP " + res.status));
+      }
+      return data;
+    }
+
+    async function importWireGuardConfig(file) {
+      if (!file) {
+        throw new Error("Please select a .conf file first.");
+      }
+
+      const body = new FormData();
+      body.append("wgconf", file, file.name);
+
+      const res = await fetch("/api/vpn/import", {
+        method: "POST",
+        body
+      });
+
+      const raw = await res.text();
+      let data = {};
+      try {
+        data = JSON.parse(raw);
+      } catch {
+      }
+      if (!res.ok || !data.ok) {
+        const fallback = String(raw || "").trim();
+        throw new Error(data.error || (fallback ? fallback.slice(0, 220) : ("HTTP " + res.status)));
+      }
+
+      renderImportWarnings(data.warnings || []);
+      fillForm(data.config || {});
+
+      const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+      const fullTunnelIgnored = warnings.includes("Full-tunnel entry 0.0.0.0/0 was ignored to keep local access safe.");
+      alertToast("success", "Config imported into form. Click Save to store.");
+      if (fullTunnelIgnored) {
+        setTimeout(() => {
+          alertToast("warning", "Full-tunnel entry 0.0.0.0/0 was ignored to keep local access safe.");
+        }, 3200);
+      }
+      return data;
+    }
+
+    document.getElementById("enabledToggleBtn").addEventListener("click", () => {
+      enabledState = !enabledState;
+      renderEnabledToggle();
+    });
+
+    document.getElementById("privateKeyClearBtn").addEventListener("click", () => {
+      document.getElementById("private_key_new").value = "";
+      privateKeyState.clear = true;
+      privateKeyState.has = false;
+      privateKeyState.fp = "";
+      privateKeyState.fpDisplay = "";
+      renderKeyStates();
+    });
+
+    document.getElementById("presharedKeyClearBtn").addEventListener("click", () => {
+      document.getElementById("preshared_key_new").value = "";
+      presharedKeyState.clear = true;
+      presharedKeyState.has = false;
+      presharedKeyState.fp = "";
+      presharedKeyState.fpDisplay = "";
+      renderKeyStates();
+    });
+
+    document.getElementById("private_key_new").addEventListener("input", () => {
+      if (document.getElementById("private_key_new").value.trim().length) {
+        privateKeyState.clear = false;
+      }
+      renderKeyStates();
+    });
+
+    document.getElementById("preshared_key_new").addEventListener("input", () => {
+      if (document.getElementById("preshared_key_new").value.trim().length) {
+        presharedKeyState.clear = false;
+      }
+      renderKeyStates();
+    });
+
+    document.getElementById("vpnForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const payload = gatherPayload();
+        const data = await saveVpn(payload);
+        updateStatus(data.status || {});
+        alertToast("success", "VPN settings saved.");
+        await loadForm();
+      } catch (err) {
+        alertToast("error", "Save failed: " + (err && err.message ? err.message : "unknown"));
+      }
+    });
+
+    document.getElementById("importBtn").addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const fileInput = document.getElementById("wgImportFile");
+      fileInput.value = "";
+      fileInput.click();
+    });
+
+    document.getElementById("wgImportFile").addEventListener("change", async (event) => {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      try {
+        await importWireGuardConfig(file);
+      } catch (err) {
+        renderImportWarnings([]);
+        alertToast("error", "Import failed: " + (err && err.message ? err.message : "unknown"));
+      } finally {
+        event.target.value = "";
+      }
+    });
+
+    (async function init() {
+      await loadForm();
+      renderEnabledToggle();
+      renderKeyStates();
+      renderImportWarnings([]);
+      pollStatus();
+      statusPoll = setInterval(pollStatus, 2000);
+    })();
+  </script>
+  <script src="/footer.js"></script>
+</body>
+</html>

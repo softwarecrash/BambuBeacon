@@ -12,12 +12,15 @@ private:
 
   bool isAuthorized(AsyncWebServerRequest* req);
   void sendGz(AsyncWebServerRequest* req, const uint8_t* data, size_t len, const char* mime);
+  void sendGzChunked(AsyncWebServerRequest* req, const uint8_t* data, size_t len, const char* mime);
 
   void handleNetlist(AsyncWebServerRequest* req);
   void handleSubmitConfig(AsyncWebServerRequest* req);
   void handlePrinterDiscovery(AsyncWebServerRequest* req);
   void handleSubmitPrinterConfig(AsyncWebServerRequest* req);
   void handleLedTestCmd(AsyncWebServerRequest* req);
+  void handleGetVpnApi(AsyncWebServerRequest* req);
+  void handleSetVpnApi(AsyncWebServerRequest* req, const String& body);
 };
 
 const uint8_t* webserialHtml();

@@ -78,6 +78,6 @@ def compress_files():
 
         f.write("\n#endif // WWW_H\n")
 
-    print(f"\n✅ All files combined into: {OUTPUT_HEADER_FILE}")
+    print(f"\nAll files combined into: {OUTPUT_HEADER_FILE}")
 
 compress_files()
