@@ -26,14 +26,17 @@
   - stop VPN when Wi-Fi disconnects
   - auto-restart when Wi-Fi reconnects
 - Added security behavior for web API:
-  - keys masked by default in `GET /api/vpn`
-  - explicit reveal only with `?reveal=1`
+  - keys are never returned by API
+  - API returns only key presence and SHA-256 fingerprints
+  - secrets are stored separately from normal config JSON in NVS
+  - legacy key reveal flow was removed; no API/UI path returns plaintext keys
 - Added AsyncWebServer JSON API (`/api/vpn`) and BambuBeacon-native page routing/UI integration (`/vpn`).
 - Added streaming WireGuard `.conf` import endpoint (`/api/vpn/import`) with FRITZ!Box-compatible parsing.
 - Added strict split-tunnel safety guard:
   - full-tunnel entries (`0.0.0.0/0`, `::/0`) are never applied
   - imports drop full-tunnel entries and require an RFC1918 printer subnet
   - runtime blocks unsafe routes with status `DISCONNECTED (unsafe route)`
+  - config restore clears stored VPN secrets because backups intentionally exclude secret material
 
 ## Keepalive and status
 - Persistent keepalive is set to 25 seconds for the configured WireGuard peer.

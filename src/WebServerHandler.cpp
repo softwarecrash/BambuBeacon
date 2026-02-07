@@ -13,6 +13,7 @@
 #include "LedController.h"
 #include "GitHubOtaUpdater.h"
 #include "WireGuardVpnManager.h"
+#include "VpnSecretStore.h"
 
 extern Settings settings;
 extern WiFiManager wifiManager;
@@ -105,9 +106,9 @@ namespace NetScanCache
 
 namespace VpnApi
 {
-  static const char* kMaskedSecret = "********";
   static const char* kSplitTunnelOnlyError =
       "Full-tunnel configs are not supported. Please use split-tunnel AllowedIPs for the printer network (e.g. 192.168.x.0/24).";
+  static const char* kKeyFingerprintMismatch = "Key fingerprint mismatch. Reload page and try again.";
 
   static bool isLikelyWireGuardKey(const String& value)
   {
@@ -132,6 +133,57 @@ namespace VpnApi
     IPAddress ip;
     if (!ip.fromString(value)) return false;
     *out = ip;
+    return true;
+  }
+
+  static IPAddress maskFromPrefixV4(uint8_t prefix)
+  {
+    uint32_t mask = 0;
+    if (prefix >= 32) {
+      mask = 0xFFFFFFFFUL;
+    } else if (prefix > 0) {
+      mask = 0xFFFFFFFFUL << (32 - prefix);
+    }
+    return IPAddress(
+      (uint8_t)((mask >> 24) & 0xFF),
+      (uint8_t)((mask >> 16) & 0xFF),
+      (uint8_t)((mask >> 8) & 0xFF),
+      (uint8_t)(mask & 0xFF));
+  }
+
+  static bool parseIpOrCidr(const String& value, IPAddress* outIp, IPAddress* outMask, bool* hadCidr)
+  {
+    if (!outIp) return false;
+    String tmp = value;
+    tmp.trim();
+    if (!tmp.length()) return false;
+
+    const int slash = tmp.indexOf('/');
+    if (slash < 0) {
+      if (hadCidr) *hadCidr = false;
+      return parseIp(tmp, outIp);
+    }
+
+    String ipPart = tmp.substring(0, slash);
+    String prefixPart = tmp.substring(slash + 1);
+    ipPart.trim();
+    prefixPart.trim();
+    if (!ipPart.length() || !prefixPart.length()) return false;
+
+    IPAddress ip;
+    if (!ip.fromString(ipPart)) return false;
+
+    for (size_t i = 0; i < prefixPart.length(); i++) {
+      const char c = prefixPart[i];
+      if (c < '0' || c > '9') return false;
+    }
+
+    const long prefix = prefixPart.toInt();
+    if (prefix < 0 || prefix > 32) return false;
+
+    *outIp = ip;
+    if (outMask) *outMask = maskFromPrefixV4((uint8_t)prefix);
+    if (hadCidr) *hadCidr = true;
     return true;
   }
 
@@ -224,14 +276,18 @@ namespace VpnApi
     cfg.localMask = readIpOrDefault(settings.get.vpnLocalMask(), IPAddress(255, 255, 255, 0));
     cfg.localPort = settings.get.vpnLocalPort();
     cfg.localGateway = readIpOrDefault(settings.get.vpnLocalGateway(), IPAddress(0, 0, 0, 0));
-    cfg.privateKey = settings.get.vpnPrivateKey() ? settings.get.vpnPrivateKey() : "";
+    if (!VpnSecretStore::loadPrivateKey(&cfg.privateKey)) {
+      cfg.privateKey = "";
+    }
     cfg.endpointHost = settings.get.vpnEndpointHost() ? settings.get.vpnEndpointHost() : "";
     cfg.endpointPublicKey = settings.get.vpnEndpointPubKey() ? settings.get.vpnEndpointPubKey() : "";
     cfg.endpointPort = settings.get.vpnEndpointPort();
     cfg.allowedIp = readIpOrDefault(settings.get.vpnAllowedIp(), IPAddress(0, 0, 0, 0));
     cfg.allowedMask = readIpOrDefault(settings.get.vpnAllowedMask(), IPAddress(0, 0, 0, 0));
     cfg.makeDefault = false;
-    cfg.presharedKey = settings.get.vpnPresharedKey() ? settings.get.vpnPresharedKey() : "";
+    if (!VpnSecretStore::loadPresharedKey(&cfg.presharedKey)) {
+      cfg.presharedKey = "";
+    }
     return cfg;
   }
 
@@ -242,14 +298,12 @@ namespace VpnApi
     settings.set.vpnLocalMask(cfg.localMask.toString());
     settings.set.vpnLocalPort(cfg.localPort);
     settings.set.vpnLocalGateway(cfg.localGateway.toString());
-    settings.set.vpnPrivateKey(cfg.privateKey);
     settings.set.vpnEndpointHost(cfg.endpointHost);
     settings.set.vpnEndpointPubKey(cfg.endpointPublicKey);
     settings.set.vpnEndpointPort(cfg.endpointPort);
     settings.set.vpnAllowedIp(cfg.allowedIp.toString());
     settings.set.vpnAllowedMask(cfg.allowedMask.toString());
     settings.set.vpnMakeDefault(false);
-    settings.set.vpnPresharedKey(cfg.presharedKey);
     settings.save();
   }
 
@@ -301,10 +355,25 @@ namespace VpnApi
     return true;
   }
 
+  struct SecretUpdateDirective {
+    bool hasPrivateKeyNew = false;
+    String privateKeyNew;
+    bool hasPrivateKeyFp = false;
+    String privateKeyFp;
+    bool privateKeyClear = false;
+
+    bool hasPresharedKeyNew = false;
+    String presharedKeyNew;
+    bool hasPresharedKeyFp = false;
+    String presharedKeyFp;
+    bool presharedKeyClear = false;
+  };
+
   static bool parseAndValidateFromJson(
       JsonObjectConst root,
       const VpnConfig& current,
       VpnConfig* out,
+      SecretUpdateDirective* secretUpdate,
       String* errorReason)
   {
     if (!out) return false;
@@ -319,6 +388,9 @@ namespace VpnApi
     bool boolValue = false;
     uint16_t portValue = 0;
     IPAddress ipValue;
+    IPAddress cidrMaskValue;
+    bool allowedIpHadCidr = false;
+    SecretUpdateDirective secrets;
 
     if (!root["enabled"].isNull()) {
       if (!parseBoolField(root["enabled"], &boolValue)) return fail("invalid enabled");
@@ -341,10 +413,6 @@ namespace VpnApi
       if (!parseStringField(root["local_gateway"], &tmp) || !parseIp(tmp, &ipValue)) return fail("invalid local_gateway");
       cfg.localGateway = ipValue;
     }
-    if (!root["private_key"].isNull()) {
-      if (!parseStringField(root["private_key"], &tmp)) return fail("invalid private_key");
-      if (tmp != kMaskedSecret) cfg.privateKey = tmp;
-    }
     if (!root["endpoint_host"].isNull()) {
       if (!parseStringField(root["endpoint_host"], &tmp)) return fail("invalid endpoint_host");
       cfg.endpointHost = tmp;
@@ -358,10 +426,16 @@ namespace VpnApi
       cfg.endpointPort = portValue;
     }
     if (!root["allowed_ip"].isNull()) {
-      if (!parseStringField(root["allowed_ip"], &tmp) || !parseIp(tmp, &ipValue)) return fail("invalid allowed_ip");
+      if (!parseStringField(root["allowed_ip"], &tmp) ||
+          !parseIpOrCidr(tmp, &ipValue, &cidrMaskValue, &allowedIpHadCidr)) {
+        return fail("invalid allowed_ip");
+      }
       cfg.allowedIp = ipValue;
+      if (allowedIpHadCidr) {
+        cfg.allowedMask = cidrMaskValue;
+      }
     }
-    if (!root["allowed_mask"].isNull()) {
+    if (!root["allowed_mask"].isNull() && !allowedIpHadCidr) {
       if (!parseStringField(root["allowed_mask"], &tmp) || !parseIp(tmp, &ipValue)) return fail("invalid allowed_mask");
       cfg.allowedMask = ipValue;
     }
@@ -370,22 +444,118 @@ namespace VpnApi
       if (boolValue) return fail(kSplitTunnelOnlyError);
       cfg.makeDefault = false;
     }
+
+    // New secure key semantics.
+    if (!root["privateKeyNew"].isNull()) {
+      if (!parseStringField(root["privateKeyNew"], &tmp)) return fail("invalid privateKeyNew");
+      tmp.trim();
+      if (tmp.length()) {
+        secrets.hasPrivateKeyNew = true;
+        secrets.privateKeyNew = tmp;
+      }
+    }
+    if (!root["privateKeyFp"].isNull()) {
+      if (!parseStringField(root["privateKeyFp"], &tmp)) return fail("invalid privateKeyFp");
+      tmp.trim();
+      if (tmp.length()) {
+        secrets.hasPrivateKeyFp = true;
+        secrets.privateKeyFp = tmp;
+      }
+    }
+    if (!root["privateKeyClear"].isNull()) {
+      if (!parseBoolField(root["privateKeyClear"], &boolValue)) return fail("invalid privateKeyClear");
+      secrets.privateKeyClear = boolValue;
+    }
+
+    if (!root["presharedKeyNew"].isNull()) {
+      if (!parseStringField(root["presharedKeyNew"], &tmp)) return fail("invalid presharedKeyNew");
+      tmp.trim();
+      if (tmp.length()) {
+        secrets.hasPresharedKeyNew = true;
+        secrets.presharedKeyNew = tmp;
+      }
+    }
+    if (!root["presharedKeyFp"].isNull()) {
+      if (!parseStringField(root["presharedKeyFp"], &tmp)) return fail("invalid presharedKeyFp");
+      tmp.trim();
+      if (tmp.length()) {
+        secrets.hasPresharedKeyFp = true;
+        secrets.presharedKeyFp = tmp;
+      }
+    }
+    if (!root["presharedKeyClear"].isNull()) {
+      if (!parseBoolField(root["presharedKeyClear"], &boolValue)) return fail("invalid presharedKeyClear");
+      secrets.presharedKeyClear = boolValue;
+    }
+
+    // Backward compatibility with old payload fields.
+    if (!root["private_key"].isNull()) {
+      if (!parseStringField(root["private_key"], &tmp)) return fail("invalid private_key");
+      tmp.trim();
+      if (tmp.length()) {
+        secrets.hasPrivateKeyNew = true;
+        secrets.privateKeyNew = tmp;
+      }
+    }
     if (!root["preshared_key"].isNull()) {
       if (!parseStringField(root["preshared_key"], &tmp)) return fail("invalid preshared_key");
-      if (tmp != kMaskedSecret) cfg.presharedKey = tmp;
+      tmp.trim();
+      if (tmp.length()) {
+        secrets.hasPresharedKeyNew = true;
+        secrets.presharedKeyNew = tmp;
+      }
     }
+
+    const uint8_t privateModes =
+        (secrets.hasPrivateKeyNew ? 1 : 0) +
+        (secrets.hasPrivateKeyFp ? 1 : 0) +
+        (secrets.privateKeyClear ? 1 : 0);
+    if (privateModes > 1) return fail("invalid private key action");
+
+    const uint8_t pskModes =
+        (secrets.hasPresharedKeyNew ? 1 : 0) +
+        (secrets.hasPresharedKeyFp ? 1 : 0) +
+        (secrets.presharedKeyClear ? 1 : 0);
+    if (pskModes > 1) return fail("invalid preshared key action");
+
     if (variantContainsFullTunnelEntry(root["allowed_ips"]) ||
         variantContainsFullTunnelEntry(root["allowed_ips_list"])) {
       return fail(kSplitTunnelOnlyError);
     }
 
     cfg.endpointHost.trim();
-    cfg.privateKey.trim();
     cfg.endpointPublicKey.trim();
-    cfg.presharedKey.trim();
     cfg.makeDefault = false;
 
     if (isFullTunnelRoute(cfg.allowedIp, cfg.allowedMask)) {
+      return fail(kSplitTunnelOnlyError);
+    }
+
+    if (cfg.enabled) {
+      if (cfg.localIp == IPAddress(0, 0, 0, 0)) return fail("local_ip is required");
+      if (cfg.localMask == IPAddress(0, 0, 0, 0)) return fail("local_mask is required");
+      if (cfg.localPort == 0) return fail("local_port must be 1..65535");
+      if (cfg.endpointPort == 0) return fail("endpoint_port must be 1..65535");
+      if (!cfg.endpointHost.length()) return fail("endpoint_host is required");
+      if (cfg.endpointHost.length() > 96) return fail("endpoint_host is too long");
+      if (!isLikelyWireGuardKey(cfg.endpointPublicKey)) return fail("invalid endpoint_public_key");
+    }
+
+    if (secretUpdate) {
+      *secretUpdate = secrets;
+    }
+    *out = cfg;
+    return true;
+  }
+
+  static bool validateResolvedConfig(const VpnConfig& cfg, String* errorReason)
+  {
+    auto fail = [&](const char* reason) -> bool {
+      if (errorReason) *errorReason = reason;
+      return false;
+    };
+
+    if (isFullTunnelRoute(cfg.allowedIp, cfg.allowedMask) || cfg.makeDefault) {
       return fail(kSplitTunnelOnlyError);
     }
 
@@ -403,7 +573,6 @@ namespace VpnApi
       }
     }
 
-    *out = cfg;
     return true;
   }
 
@@ -1160,8 +1329,10 @@ void WebServerHandler::handleLedTestCmd(AsyncWebServerRequest* req) {
 }
 
 void WebServerHandler::handleGetVpnApi(AsyncWebServerRequest* req) {
-  const bool reveal = req->hasParam("reveal") && VpnApi::isTruthy(req->getParam("reveal")->value());
+  (void)req;
   const VpnConfig cfg = VpnApi::loadConfigFromSettings();
+  const VpnSecretStore::KeyMeta privateMeta = VpnSecretStore::privateKeyMeta();
+  const VpnSecretStore::KeyMeta pskMeta = VpnSecretStore::presharedKeyMeta();
 
   JsonDocument doc;
   JsonObject config = doc["config"].to<JsonObject>();
@@ -1176,13 +1347,12 @@ void WebServerHandler::handleGetVpnApi(AsyncWebServerRequest* req) {
   config["allowed_ip"] = cfg.allowedIp.toString();
   config["allowed_mask"] = cfg.allowedMask.toString();
   config["make_default"] = false;
-
-  const bool hasPrivateKey = cfg.privateKey.length() > 0;
-  const bool hasPresharedKey = cfg.presharedKey.length() > 0;
-  config["hasPrivateKey"] = hasPrivateKey;
-  config["hasPresharedKey"] = hasPresharedKey;
-  config["private_key"] = reveal ? cfg.privateKey : (hasPrivateKey ? VpnApi::kMaskedSecret : "");
-  config["preshared_key"] = reveal ? cfg.presharedKey : (hasPresharedKey ? VpnApi::kMaskedSecret : "");
+  config["hasPrivateKey"] = privateMeta.has;
+  config["privateKeyFp"] = privateMeta.fingerprint;
+  config["privateKeyFpDisplay"] = privateMeta.displayFingerprint;
+  config["hasPresharedKey"] = pskMeta.has;
+  config["presharedKeyFp"] = pskMeta.fingerprint;
+  config["presharedKeyFpDisplay"] = pskMeta.displayFingerprint;
 
   JsonObject status = doc["status"].to<JsonObject>();
   status["connected"] = wireGuardVpn.isConnected();
@@ -1206,8 +1376,70 @@ void WebServerHandler::handleSetVpnApi(AsyncWebServerRequest* req, const String&
 
   const VpnConfig current = VpnApi::loadConfigFromSettings();
   VpnConfig updated = current;
+  VpnApi::SecretUpdateDirective secretUpdate;
   String reason;
-  if (!VpnApi::parseAndValidateFromJson(doc.as<JsonObjectConst>(), current, &updated, &reason)) {
+  if (!VpnApi::parseAndValidateFromJson(doc.as<JsonObjectConst>(), current, &updated, &secretUpdate, &reason)) {
+    JsonDocument outDoc;
+    outDoc["success"] = false;
+    outDoc["reason"] = reason;
+    String out;
+    serializeJson(outDoc, out);
+    req->send(400, "application/json", out);
+    return;
+  }
+
+  // Resolve secret key operations without ever returning key material.
+  {
+    VpnSecretStore::KeyMeta privateMeta = VpnSecretStore::privateKeyMeta();
+    VpnSecretStore::KeyMeta pskMeta = VpnSecretStore::presharedKeyMeta();
+
+    String privateKey = current.privateKey;
+    if (secretUpdate.hasPrivateKeyNew) {
+      privateKey = secretUpdate.privateKeyNew;
+      privateKey.trim();
+      if (!VpnApi::isLikelyWireGuardKey(privateKey)) {
+        reason = "invalid private_key";
+      }
+    } else if (secretUpdate.privateKeyClear) {
+      privateKey = "";
+    } else if (secretUpdate.hasPrivateKeyFp) {
+      if (!privateMeta.has || !VpnSecretStore::fingerprintsMatch(secretUpdate.privateKeyFp, privateMeta.fingerprint)) {
+        reason = VpnApi::kKeyFingerprintMismatch;
+      }
+    }
+
+    String psk = current.presharedKey;
+    if (!reason.length()) {
+      if (secretUpdate.hasPresharedKeyNew) {
+        psk = secretUpdate.presharedKeyNew;
+        psk.trim();
+        if (psk.length() && !VpnApi::isLikelyWireGuardKey(psk)) {
+          reason = "invalid preshared_key";
+        }
+      } else if (secretUpdate.presharedKeyClear) {
+        psk = "";
+      } else if (secretUpdate.hasPresharedKeyFp) {
+        if (!pskMeta.has || !VpnSecretStore::fingerprintsMatch(secretUpdate.presharedKeyFp, pskMeta.fingerprint)) {
+          reason = VpnApi::kKeyFingerprintMismatch;
+        }
+      }
+    }
+
+    if (reason.length()) {
+      JsonDocument outDoc;
+      outDoc["success"] = false;
+      outDoc["reason"] = reason;
+      String out;
+      serializeJson(outDoc, out);
+      req->send(400, "application/json", out);
+      return;
+    }
+
+    updated.privateKey = privateKey;
+    updated.presharedKey = psk;
+  }
+
+  if (!VpnApi::validateResolvedConfig(updated, &reason)) {
     JsonDocument outDoc;
     outDoc["success"] = false;
     outDoc["reason"] = reason;
@@ -1218,6 +1450,16 @@ void WebServerHandler::handleSetVpnApi(AsyncWebServerRequest* req, const String&
   }
 
   VpnApi::saveConfigToSettings(updated);
+  if (updated.privateKey.length()) {
+    VpnSecretStore::setPrivateKey(updated.privateKey);
+  } else {
+    VpnSecretStore::clearPrivateKey();
+  }
+  if (updated.presharedKey.length()) {
+    VpnSecretStore::setPresharedKey(updated.presharedKey);
+  } else {
+    VpnSecretStore::clearPresharedKey();
+  }
 
   bool applied = true;
   if (updated.enabled) {
@@ -1366,7 +1608,32 @@ void WebServerHandler::begin() {
     }
 
     const bool pretty = req->hasParam("pretty");
-    const String out = settings.backup(pretty);
+    String out = settings.backup(false);
+    JsonDocument backupDoc;
+    if (deserializeJson(backupDoc, out) == DeserializationError::Ok) {
+      JsonObject vpn = backupDoc["vpn"].to<JsonObject>();
+      vpn.remove("private_key");
+      vpn.remove("preshared_key");
+
+      const VpnSecretStore::KeyMeta privateMeta = VpnSecretStore::privateKeyMeta();
+      const VpnSecretStore::KeyMeta pskMeta = VpnSecretStore::presharedKeyMeta();
+      vpn["hasPrivateKey"] = privateMeta.has;
+      vpn["privateKeyFp"] = privateMeta.fingerprint;
+      vpn["hasPresharedKey"] = pskMeta.has;
+      vpn["presharedKeyFp"] = pskMeta.fingerprint;
+
+      JsonObject meta = backupDoc["_meta"].to<JsonObject>();
+      meta["vpnSecretsExcluded"] = true;
+      meta["vpnSecretsNote"] = "VPN secrets are intentionally excluded from backup.";
+
+      out = "";
+      if (pretty) {
+        serializeJsonPretty(backupDoc, out);
+      } else {
+        serializeJson(backupDoc, out);
+      }
+    }
+
     AsyncWebServerResponse* r = req->beginResponse(200, "application/json", out);
     r->addHeader("Content-Disposition", "attachment; filename=bambubeacon-backup.json");
     r->addHeader("Cache-Control", "no-store");
@@ -1393,6 +1660,9 @@ void WebServerHandler::begin() {
       }
 
       if (ok) {
+        // Backup/restore intentionally excludes VPN secrets. Clear stored secrets
+        // on restore to avoid stale credentials surviving a config restore.
+        VpnSecretStore::clearAllSecrets();
         req->send(200, "application/json", "{\"success\":true}");
         scheduleRestart(600);
       } else {
@@ -1727,6 +1997,20 @@ void WebServerHandler::begin() {
         return sendError(importError.length() ? importError : "Import failed.");
       }
 
+      if (VpnApi::isLikelyWireGuardKey(imported.privateKey)) {
+        VpnSecretStore::setPrivateKey(imported.privateKey);
+      }
+      if (imported.presharedKey.length()) {
+        if (VpnApi::isLikelyWireGuardKey(imported.presharedKey)) {
+          VpnSecretStore::setPresharedKey(imported.presharedKey);
+        }
+      } else {
+        VpnSecretStore::clearPresharedKey();
+      }
+
+      const VpnSecretStore::KeyMeta importedPrivateMeta = VpnSecretStore::privateKeyMeta();
+      const VpnSecretStore::KeyMeta importedPskMeta = VpnSecretStore::presharedKeyMeta();
+
       JsonDocument doc;
       doc["ok"] = true;
       JsonArray warningsArray = doc["warnings"].to<JsonArray>();
@@ -1746,14 +2030,18 @@ void WebServerHandler::begin() {
       cfg["local_mask"] = imported.localMask.toString();
       cfg["local_port"] = imported.localPort;
       cfg["local_gateway"] = imported.localGateway.toString();
-      cfg["private_key"] = imported.privateKey;
       cfg["endpoint_host"] = imported.endpointHost;
       cfg["endpoint_public_key"] = imported.endpointPublicKey;
       cfg["endpoint_port"] = imported.endpointPort;
       cfg["allowed_ip"] = imported.allowedIp.toString();
       cfg["allowed_mask"] = imported.allowedMask.toString();
       cfg["make_default"] = false;
-      cfg["preshared_key"] = imported.presharedKey;
+      cfg["hasPrivateKey"] = importedPrivateMeta.has;
+      cfg["privateKeyFp"] = importedPrivateMeta.fingerprint;
+      cfg["privateKeyFpDisplay"] = importedPrivateMeta.displayFingerprint;
+      cfg["hasPresharedKey"] = importedPskMeta.has;
+      cfg["presharedKeyFp"] = importedPskMeta.fingerprint;
+      cfg["presharedKeyFpDisplay"] = importedPskMeta.displayFingerprint;
 
       String out;
       serializeJson(doc, out);

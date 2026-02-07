@@ -8,24 +8,6 @@
   <style>
     .status-line { margin-bottom: 10px; font-weight: 700; color: var(--bb-text); }
     .status-subline { margin-top: 4px; font-size: 12px; color: var(--bb-text-2); }
-    .inline-row { display: flex; align-items: center; gap: 8px; }
-    .inline-row input { flex: 1; }
-    .key-eye {
-      width: auto;
-      padding: 10px 12px;
-      min-width: 46px;
-      border: 2px solid var(--bb-primary);
-      background: transparent;
-      color: var(--bb-primary);
-      font-size: 14px;
-      border-radius: var(--radius);
-    }
-    .helper-row {
-      margin-top: 8px;
-      display: flex;
-      gap: 8px;
-    }
-    .helper-row .btn { width: auto; flex: 1; padding: 10px 12px; font-size: 14px; }
     .import-box {
       margin-top: 10px;
       padding: 10px;
@@ -52,6 +34,22 @@
     .allowed-help {
       margin-top: 6px;
       margin-bottom: 6px;
+    }
+    .key-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px;
+      margin-bottom: 10px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .key-card .inline-info {
+      margin-bottom: 6px;
+    }
+    #toast {
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 9999;
     }
   </style>
 </head>
@@ -92,10 +90,14 @@
       <label for="local_gateway">Local gateway</label>
       <input id="local_gateway" type="text" placeholder="0.0.0.0" />
 
-      <label for="private_key">Private key of local interface</label>
-      <div class="inline-row">
-        <input id="private_key" type="password" autocomplete="new-password" placeholder="" />
-        <button type="button" class="key-eye" id="privateEyeBtn" aria-label="Toggle private key visibility">Show</button>
+      <label for="private_key_new">Private key of local interface</label>
+      <div class="key-card">
+        <div class="inline-info" id="privateKeyStored">Stored: No</div>
+        <div class="inline-info" id="privateKeyFp">Fingerprint: n/a</div>
+        <input id="private_key_new" type="password" autocomplete="new-password" placeholder="Set new key (optional)" />
+        <div class="button-stack actions" style="margin-top:8px;">
+          <button type="button" class="btn btn-outline" id="privateKeyClearBtn">Clear key</button>
+        </div>
       </div>
 
       <label for="endpoint_host">Endpoint peer address (domain name or IP address)</label>
@@ -108,30 +110,30 @@
       <input id="endpoint_port" type="number" min="1" max="65535" step="1" placeholder="51820" />
 
       <label for="allowed_ip">Allowed IP addresses</label>
-      <input id="allowed_ip" type="text" placeholder="192.168.50.0" />
-      <div class="inline-info allowed-help" title="Allowed IPs define which remote networks are reachable through the tunnel (printer network only, e.g. 192.168.178.0/24).">
+      <input id="allowed_ip" type="text" placeholder="192.168.50.0/24 or 192.168.50.0" />
+      <div class="inline-info allowed-help" title="Allowed IPs define which remote networks are reachable through the tunnel (printer network only, e.g. 192.168.178.0/24). You can enter CIDR in Allowed IP, or enter IP + mask in separate fields.">
         Allowed IPs define which remote networks are reachable through the tunnel
-        (printer network only, e.g. 192.168.178.0/24).
+        (printer network only, e.g. 192.168.178.0/24). You can enter CIDR in Allowed IP,
+        or enter IP + mask in separate fields.
       </div>
 
       <label for="allowed_mask">Allowed mask</label>
       <input id="allowed_mask" type="text" placeholder="255.255.255.0" />
 
-      <label for="preshared_key">Preshared key</label>
-      <div class="inline-row">
-        <input id="preshared_key" type="password" autocomplete="new-password" placeholder="" />
-        <button type="button" class="key-eye" id="presharedEyeBtn" aria-label="Toggle preshared key visibility">Show</button>
-      </div>
-
-      <div class="helper-row">
-        <button type="button" class="btn btn-outline" id="loadRealKeysBtn">Load Real Keys</button>
+      <label for="preshared_key_new">Preshared key</label>
+      <div class="key-card">
+        <div class="inline-info" id="presharedKeyStored">Stored: No</div>
+        <div class="inline-info" id="presharedKeyFp">Fingerprint: n/a</div>
+        <input id="preshared_key_new" type="password" autocomplete="new-password" placeholder="Set new key (optional)" />
+        <div class="button-stack actions" style="margin-top:8px;">
+          <button type="button" class="btn btn-outline" id="presharedKeyClearBtn">Clear key</button>
+        </div>
       </div>
 
       <div class="button-stack actions">
         <button type="submit" class="btn">Save</button>
         <button type="button" class="btn btn-outline" onclick="location.href='/'">Back</button>
       </div>
-
     </form>
   </div>
 
@@ -142,6 +144,16 @@
   <script>
     let statusPoll = null;
     let enabledState = false;
+    let toastTimer = null;
+
+    const privateKeyState = { has: false, fp: "", fpDisplay: "", clear: false };
+    const presharedKeyState = { has: false, fp: "", fpDisplay: "", clear: false };
+
+    function shortFingerprint(fp) {
+      const value = String(fp || "").trim();
+      if (value.length <= 16) return value;
+      return value.slice(0, 8) + "..." + value.slice(-8);
+    }
 
     function alertToast(type, message) {
       const toast = document.getElementById("toast");
@@ -161,25 +173,17 @@
       toast.style.borderLeftColor = (borderColor || "").trim() || "#00E5FF";
       icon.textContent = iconChar;
       msg.textContent = message;
+      if (toastTimer) {
+        clearTimeout(toastTimer);
+        toastTimer = null;
+      }
+      toast.classList.remove("show");
+      void toast.offsetWidth;
       toast.classList.add("show");
-      setTimeout(() => toast.classList.remove("show"), 3000);
-    }
-
-    function fillForm(cfg) {
-      if (!cfg) return;
-      enabledState = !!cfg.enabled;
-      renderEnabledToggle();
-      document.getElementById("local_ip").value = cfg.local_ip || "";
-      document.getElementById("local_mask").value = cfg.local_mask || "";
-      document.getElementById("local_port").value = cfg.local_port || "";
-      document.getElementById("local_gateway").value = cfg.local_gateway || "";
-      document.getElementById("private_key").value = cfg.private_key || "";
-      document.getElementById("endpoint_host").value = cfg.endpoint_host || "";
-      document.getElementById("endpoint_public_key").value = cfg.endpoint_public_key || "";
-      document.getElementById("endpoint_port").value = cfg.endpoint_port || "";
-      document.getElementById("allowed_ip").value = cfg.allowed_ip || "";
-      document.getElementById("allowed_mask").value = cfg.allowed_mask || "";
-      document.getElementById("preshared_key").value = cfg.preshared_key || "";
+      toastTimer = setTimeout(() => {
+        toast.classList.remove("show");
+        toastTimer = null;
+      }, 3000);
     }
 
     function renderEnabledToggle() {
@@ -191,6 +195,52 @@
       } else {
         btn.classList.add("btn-outline");
       }
+    }
+
+    function renderKeyStates() {
+      const privateNew = document.getElementById("private_key_new").value.trim();
+      const privateStored = privateNew.length ? "Stored: New value pending" : (privateKeyState.has ? "Stored: Yes" : "Stored: No");
+      const privateFp = privateKeyState.fpDisplay || shortFingerprint(privateKeyState.fp);
+      const privateFpText = privateNew.length ? "Fingerprint: will be replaced on save" : ("Fingerprint: " + (privateFp || "n/a"));
+      document.getElementById("privateKeyStored").textContent = privateStored;
+      document.getElementById("privateKeyFp").textContent = privateFpText;
+
+      const pskNew = document.getElementById("preshared_key_new").value.trim();
+      const pskStored = pskNew.length ? "Stored: New value pending" : (presharedKeyState.has ? "Stored: Yes" : "Stored: No");
+      const pskFp = presharedKeyState.fpDisplay || shortFingerprint(presharedKeyState.fp);
+      const pskFpText = pskNew.length ? "Fingerprint: will be replaced on save" : ("Fingerprint: " + (pskFp || "n/a"));
+      document.getElementById("presharedKeyStored").textContent = pskStored;
+      document.getElementById("presharedKeyFp").textContent = pskFpText;
+    }
+
+    function fillForm(cfg) {
+      if (!cfg) return;
+      enabledState = !!cfg.enabled;
+      renderEnabledToggle();
+
+      document.getElementById("local_ip").value = cfg.local_ip || "";
+      document.getElementById("local_mask").value = cfg.local_mask || "";
+      document.getElementById("local_port").value = cfg.local_port || "";
+      document.getElementById("local_gateway").value = cfg.local_gateway || "";
+      document.getElementById("endpoint_host").value = cfg.endpoint_host || "";
+      document.getElementById("endpoint_public_key").value = cfg.endpoint_public_key || "";
+      document.getElementById("endpoint_port").value = cfg.endpoint_port || "";
+      document.getElementById("allowed_ip").value = cfg.allowed_ip || "";
+      document.getElementById("allowed_mask").value = cfg.allowed_mask || "";
+
+      privateKeyState.has = !!cfg.hasPrivateKey;
+      privateKeyState.fp = cfg.privateKeyFp || "";
+      privateKeyState.fpDisplay = cfg.privateKeyFpDisplay || shortFingerprint(privateKeyState.fp);
+      privateKeyState.clear = false;
+      document.getElementById("private_key_new").value = "";
+
+      presharedKeyState.has = !!cfg.hasPresharedKey;
+      presharedKeyState.fp = cfg.presharedKeyFp || "";
+      presharedKeyState.fpDisplay = cfg.presharedKeyFpDisplay || shortFingerprint(presharedKeyState.fp);
+      presharedKeyState.clear = false;
+      document.getElementById("preshared_key_new").value = "";
+
+      renderKeyStates();
     }
 
     function updateStatus(status) {
@@ -219,16 +269,15 @@
       box.textContent = list.map((w, i) => (i + 1) + ". " + w).join("\n");
     }
 
-    async function fetchVpn(reveal) {
-      const url = reveal ? "/api/vpn?reveal=1" : "/api/vpn";
-      const res = await fetch(url, { cache: "no-store" });
+    async function fetchVpn() {
+      const res = await fetch("/api/vpn", { cache: "no-store" });
       if (!res.ok) throw new Error("Request failed");
       return res.json();
     }
 
-    async function loadForm(revealKeys) {
+    async function loadForm() {
       try {
-        const data = await fetchVpn(!!revealKeys);
+        const data = await fetchVpn();
         fillForm(data.config || {});
         updateStatus(data.status || {});
       } catch {
@@ -238,27 +287,45 @@
 
     async function pollStatus() {
       try {
-        const data = await fetchVpn(false);
+        const data = await fetchVpn();
         updateStatus(data.status || {});
       } catch {
       }
     }
 
     function gatherPayload() {
-      return {
+      const payload = {
         enabled: enabledState,
         local_ip: document.getElementById("local_ip").value.trim(),
         local_mask: document.getElementById("local_mask").value.trim(),
         local_port: Number(document.getElementById("local_port").value || 0),
         local_gateway: document.getElementById("local_gateway").value.trim(),
-        private_key: document.getElementById("private_key").value,
         endpoint_host: document.getElementById("endpoint_host").value.trim(),
         endpoint_public_key: document.getElementById("endpoint_public_key").value.trim(),
         endpoint_port: Number(document.getElementById("endpoint_port").value || 0),
         allowed_ip: document.getElementById("allowed_ip").value.trim(),
-        allowed_mask: document.getElementById("allowed_mask").value.trim(),
-        preshared_key: document.getElementById("preshared_key").value
+        allowed_mask: document.getElementById("allowed_mask").value.trim()
       };
+
+      const privateNew = document.getElementById("private_key_new").value.trim();
+      if (privateNew.length) {
+        payload.privateKeyNew = privateNew;
+      } else if (privateKeyState.clear) {
+        payload.privateKeyClear = true;
+      } else if (privateKeyState.fp) {
+        payload.privateKeyFp = privateKeyState.fp;
+      }
+
+      const pskNew = document.getElementById("preshared_key_new").value.trim();
+      if (pskNew.length) {
+        payload.presharedKeyNew = pskNew;
+      } else if (presharedKeyState.clear) {
+        payload.presharedKeyClear = true;
+      } else if (presharedKeyState.fp) {
+        payload.presharedKeyFp = presharedKeyState.fp;
+      }
+
+      return payload;
     }
 
     async function saveVpn(payload) {
@@ -300,6 +367,7 @@
 
       renderImportWarnings(data.warnings || []);
       fillForm(data.config || {});
+
       const warnings = Array.isArray(data.warnings) ? data.warnings : [];
       const fullTunnelIgnored = warnings.includes("Full-tunnel entry 0.0.0.0/0 was ignored to keep local access safe.");
       alertToast("success", "Config imported into form. Click Save to store.");
@@ -311,34 +379,41 @@
       return data;
     }
 
-    function toggleKeyVisibility(inputId, btnId) {
-      const input = document.getElementById(inputId);
-      const btn = document.getElementById(btnId);
-      const shown = input.type === "text";
-      input.type = shown ? "password" : "text";
-      btn.textContent = shown ? "Show" : "Hide";
-    }
-
-    document.getElementById("privateEyeBtn").addEventListener("click", () => {
-      toggleKeyVisibility("private_key", "privateEyeBtn");
-    });
-
-    document.getElementById("presharedEyeBtn").addEventListener("click", () => {
-      toggleKeyVisibility("preshared_key", "presharedEyeBtn");
-    });
-
     document.getElementById("enabledToggleBtn").addEventListener("click", () => {
       enabledState = !enabledState;
       renderEnabledToggle();
     });
 
-    document.getElementById("loadRealKeysBtn").addEventListener("click", async () => {
-      try {
-        await loadForm(true);
-        alertToast("success", "Real keys loaded for editing.");
-      } catch {
-        alertToast("error", "Failed to load real keys.");
+    document.getElementById("privateKeyClearBtn").addEventListener("click", () => {
+      document.getElementById("private_key_new").value = "";
+      privateKeyState.clear = true;
+      privateKeyState.has = false;
+      privateKeyState.fp = "";
+      privateKeyState.fpDisplay = "";
+      renderKeyStates();
+    });
+
+    document.getElementById("presharedKeyClearBtn").addEventListener("click", () => {
+      document.getElementById("preshared_key_new").value = "";
+      presharedKeyState.clear = true;
+      presharedKeyState.has = false;
+      presharedKeyState.fp = "";
+      presharedKeyState.fpDisplay = "";
+      renderKeyStates();
+    });
+
+    document.getElementById("private_key_new").addEventListener("input", () => {
+      if (document.getElementById("private_key_new").value.trim().length) {
+        privateKeyState.clear = false;
       }
+      renderKeyStates();
+    });
+
+    document.getElementById("preshared_key_new").addEventListener("input", () => {
+      if (document.getElementById("preshared_key_new").value.trim().length) {
+        presharedKeyState.clear = false;
+      }
+      renderKeyStates();
     });
 
     document.getElementById("vpnForm").addEventListener("submit", async (event) => {
@@ -348,7 +423,7 @@
         const data = await saveVpn(payload);
         updateStatus(data.status || {});
         alertToast("success", "VPN settings saved.");
-        await loadForm(false);
+        await loadForm();
       } catch (err) {
         alertToast("error", "Save failed: " + (err && err.message ? err.message : "unknown"));
       }
@@ -376,8 +451,9 @@
     });
 
     (async function init() {
-      await loadForm(false);
+      await loadForm();
       renderEnabledToggle();
+      renderKeyStates();
       renderImportWarnings([]);
       pollStatus();
       statusPoll = setInterval(pollStatus, 2000);

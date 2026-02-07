@@ -83,35 +83,39 @@ Keep private keys secret. Never share `bb-private.key` publicly.
   "local_mask": "255.255.255.0",
   "local_port": 33333,
   "local_gateway": "0.0.0.0",
-  "private_key": "<base64-private-key>",
   "endpoint_host": "vpn.example.com",
   "endpoint_public_key": "<base64-peer-public-key>",
   "endpoint_port": 51820,
   "allowed_ip": "192.168.50.0",
   "allowed_mask": "255.255.255.0",
-  "preshared_key": "<optional-base64-psk>"
+  "privateKeyNew": "<base64-private-key>",
+  "presharedKeyNew": "<optional-base64-psk>"
 }
 ```
 
 Notes:
 - Only the `allowed_ip/allowed_mask` printer subnet is routed through the tunnel (split tunnel).
 - Full-tunnel routes (`0.0.0.0/0` or `::/0`) are rejected for safety.
-- Private and preshared keys are masked in `GET /api/vpn` unless `?reveal=1` is explicitly requested.
+- `GET /api/vpn` never returns key material; only key presence and fingerprints.
+- To keep existing stored keys on save, send `privateKeyFp` / `presharedKeyFp`.
+- To remove stored keys, send `privateKeyClear: true` / `presharedKeyClear: true`.
 
 ### Importing WireGuard configs (FRITZ!Box example)
 The VPN page supports importing a standard WireGuard client file (`.conf`).
 
 Example flow:
 1. Export a WireGuard client config from FRITZ!Box.
-2. Open BambuBeacon `VPN` page and select the file in `Import WireGuard config (.conf)`.
-3. Click `Import` to load values into the form.
+2. Open BambuBeacon `VPN` page and click `Import config`.
+3. Select the `.conf` file in the file picker to load values into the form.
 4. Review and click `Save` to store and apply settings.
 
 Import behavior:
-- Import only fills the form; it does not save or apply automatically.
+- Import fills the form and stores imported VPN key secrets internally.
+- Imported keys are never returned by API; only fingerprint metadata is shown.
 - If multiple `AllowedIPs` are present, the first RFC1918 subnet is used and additional entries are reported as warnings.
 - If `0.0.0.0/0` is present, it is ignored with a warning to keep local access safe.
 - If no RFC1918 printer subnet remains after filtering full-tunnel entries, import is rejected.
+- Config restore clears stored VPN secrets by design, because backups intentionally exclude secret key material.
 
 ### Testing checklist
 - VPN disabled: baseline behavior unchanged.

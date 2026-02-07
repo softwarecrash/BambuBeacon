@@ -11,6 +11,7 @@
 #include "WebSerial.h"
 #include "GitHubOtaUpdater.h"
 #include "WireGuardVpnManager.h"
+#include "VpnSecretStore.h"
 
 LedController ledsCtrl;
 Settings settings;
@@ -37,14 +38,18 @@ static VpnConfig vpnConfigFromSettings() {
   cfg.localMask = parseIpOrDefault(settings.get.vpnLocalMask(), IPAddress(255, 255, 255, 0));
   cfg.localPort = settings.get.vpnLocalPort();
   cfg.localGateway = parseIpOrDefault(settings.get.vpnLocalGateway(), IPAddress(0, 0, 0, 0));
-  cfg.privateKey = settings.get.vpnPrivateKey() ? settings.get.vpnPrivateKey() : "";
+  if (!VpnSecretStore::loadPrivateKey(&cfg.privateKey)) {
+    cfg.privateKey = "";
+  }
   cfg.endpointHost = settings.get.vpnEndpointHost() ? settings.get.vpnEndpointHost() : "";
   cfg.endpointPublicKey = settings.get.vpnEndpointPubKey() ? settings.get.vpnEndpointPubKey() : "";
   cfg.endpointPort = settings.get.vpnEndpointPort();
   cfg.allowedIp = parseIpOrDefault(settings.get.vpnAllowedIp(), IPAddress(0, 0, 0, 0));
   cfg.allowedMask = parseIpOrDefault(settings.get.vpnAllowedMask(), IPAddress(0, 0, 0, 0));
   cfg.makeDefault = false;
-  cfg.presharedKey = settings.get.vpnPresharedKey() ? settings.get.vpnPresharedKey() : "";
+  if (!VpnSecretStore::loadPresharedKey(&cfg.presharedKey)) {
+    cfg.presharedKey = "";
+  }
   return cfg;
 }
 
@@ -55,6 +60,8 @@ void setup() {
   webSerial.begin(&server, 115200, 200);
 
   settings.begin();
+  (void)VpnSecretStore::privateKeyMeta();
+  (void)VpnSecretStore::presharedKeyMeta();
   webSerial.setAuthentication(settings.get.webUIuser(), settings.get.webUIPass());
   ota.begin();
   ota.setUpdateActivityCallback([](bool active) {
