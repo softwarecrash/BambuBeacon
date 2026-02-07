@@ -62,4 +62,62 @@ Color legend:
 - Blue: cooling/download
 - Purple: Wi-Fi reconnect
 
+## WireGuard VPN ##
+BambuBeacon supports a WireGuard VPN client to reach printers in remote subnets.
+
+### Key generation example
+Use any WireGuard-capable host:
+
+```bash
+wg genkey | tee bb-private.key | wg pubkey > bb-public.key
+wg genpsk > bb-psk.key
+```
+
+Keep private keys secret. Never share `bb-private.key` publicly.
+
+### Sample VPN config (`POST /api/vpn`)
+```json
+{
+  "enabled": true,
+  "local_ip": "10.66.0.2",
+  "local_mask": "255.255.255.0",
+  "local_port": 33333,
+  "local_gateway": "0.0.0.0",
+  "private_key": "<base64-private-key>",
+  "endpoint_host": "vpn.example.com",
+  "endpoint_public_key": "<base64-peer-public-key>",
+  "endpoint_port": 51820,
+  "allowed_ip": "192.168.50.0",
+  "allowed_mask": "255.255.255.0",
+  "preshared_key": "<optional-base64-psk>"
+}
+```
+
+Notes:
+- Only the `allowed_ip/allowed_mask` printer subnet is routed through the tunnel (split tunnel).
+- Full-tunnel routes (`0.0.0.0/0` or `::/0`) are rejected for safety.
+- Private and preshared keys are masked in `GET /api/vpn` unless `?reveal=1` is explicitly requested.
+
+### Importing WireGuard configs (FRITZ!Box example)
+The VPN page supports importing a standard WireGuard client file (`.conf`).
+
+Example flow:
+1. Export a WireGuard client config from FRITZ!Box.
+2. Open BambuBeacon `VPN` page and select the file in `Import WireGuard config (.conf)`.
+3. Click `Import` to load values into the form.
+4. Review and click `Save` to store and apply settings.
+
+Import behavior:
+- Import only fills the form; it does not save or apply automatically.
+- If multiple `AllowedIPs` are present, the first RFC1918 subnet is used and additional entries are reported as warnings.
+- If `0.0.0.0/0` is present, it is ignored with a warning to keep local access safe.
+- If no RFC1918 printer subnet remains after filtering full-tunnel entries, import is rejected.
+
+### Testing checklist
+- VPN disabled: baseline behavior unchanged.
+- VPN enabled with valid config: status reaches `CONNECTED`, remote allowed subnet is reachable.
+- Wi-Fi reconnect: VPN restarts automatically and reconnects.
+- Wrong config: status stays `DISCONNECTED (...)` with concise reason.
+- UI responsiveness: Web UI remains responsive while VPN is connecting/retrying.
+
 Spezial thanks to [@NeoRame](https://github.com/NeoRame) for Logo and Brand

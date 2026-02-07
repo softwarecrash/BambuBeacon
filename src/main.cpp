@@ -10,6 +10,7 @@
 #include "WebServerHandler.h"
 #include "WebSerial.h"
 #include "GitHubOtaUpdater.h"
+#include "WireGuardVpnManager.h"
 
 LedController ledsCtrl;
 Settings settings;
@@ -19,6 +20,33 @@ WebServerHandler web(server);
 BBLPrinterDiscovery printerDiscovery;
 BambuMqttClient bambu;
 GitHubOtaUpdater ota("softwarecrash", "BambuBeacon", STRVERSION, BUILD_VARIANT);
+WireGuardVpnManager wireGuardVpn;
+
+static IPAddress parseIpOrDefault(const char* value, const IPAddress& fallback) {
+  IPAddress ip;
+  if (value && ip.fromString(value)) {
+    return ip;
+  }
+  return fallback;
+}
+
+static VpnConfig vpnConfigFromSettings() {
+  VpnConfig cfg;
+  cfg.enabled = settings.get.vpnEnabled();
+  cfg.localIp = parseIpOrDefault(settings.get.vpnLocalIp(), IPAddress(0, 0, 0, 0));
+  cfg.localMask = parseIpOrDefault(settings.get.vpnLocalMask(), IPAddress(255, 255, 255, 0));
+  cfg.localPort = settings.get.vpnLocalPort();
+  cfg.localGateway = parseIpOrDefault(settings.get.vpnLocalGateway(), IPAddress(0, 0, 0, 0));
+  cfg.privateKey = settings.get.vpnPrivateKey() ? settings.get.vpnPrivateKey() : "";
+  cfg.endpointHost = settings.get.vpnEndpointHost() ? settings.get.vpnEndpointHost() : "";
+  cfg.endpointPublicKey = settings.get.vpnEndpointPubKey() ? settings.get.vpnEndpointPubKey() : "";
+  cfg.endpointPort = settings.get.vpnEndpointPort();
+  cfg.allowedIp = parseIpOrDefault(settings.get.vpnAllowedIp(), IPAddress(0, 0, 0, 0));
+  cfg.allowedMask = parseIpOrDefault(settings.get.vpnAllowedMask(), IPAddress(0, 0, 0, 0));
+  cfg.makeDefault = false;
+  cfg.presharedKey = settings.get.vpnPresharedKey() ? settings.get.vpnPresharedKey() : "";
+  return cfg;
+}
 
 void setup() {
 #ifdef WSL_CUSTOM_PAGE
@@ -40,6 +68,7 @@ void setup() {
   ledsCtrl.begin(settings);
   wifiManager.begin();
   web.begin();
+  wireGuardVpn.begin(vpnConfigFromSettings());
 
   bambu.onReport([](uint32_t nowMs) {
     ledsCtrl.ingestBambuReport(nowMs);
@@ -62,6 +91,7 @@ void loop() {
     return;
   }
   wifiManager.loop();
+  wireGuardVpn.update();
   printerDiscovery.update();
   if (bambu.isConnected() || !printerDiscovery.isBusy()) {
     bambu.loopTick();

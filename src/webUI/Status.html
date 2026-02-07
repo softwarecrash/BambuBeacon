@@ -20,6 +20,7 @@
           </span>
         </div>
         <div class="title-sub" id="deviceIp">IP: --</div>
+        <div class="title-sub" id="vpnIp" style="display:none;">VPN: --</div>
       </div>
     </div>
 
@@ -53,6 +54,7 @@
       <div class="button-stack">
         <button class="btn btn-outline" onclick="location.href='/wifisetup'">Wi-Fi / Network</button>
         <button class="btn btn-outline" onclick="location.href='/printersetup'">Printer Setup</button>
+        <button class="btn btn-outline" onclick="location.href='/vpn'">Wireguard Setup</button>
         <button class="btn btn-outline" onclick="location.href='/maintenance'">Maintenance</button>
         <button class="btn btn-outline" onclick="window.open('/webserial','_blank','noopener')">Debug Log</button>
       </div>
@@ -76,8 +78,11 @@
 
     async function loadInfo() {
       try {
-        const r = await fetch("/info.json");
-        const j = await r.json();
+        const [infoRes, vpnRes] = await Promise.all([
+          fetch("/info.json", { cache: "no-store" }),
+          fetch("/api/vpn", { cache: "no-store" })
+        ]);
+        const j = await infoRes.json();
         document.getElementById("deviceName").textContent = j.deviceName || "BambuBeacon";
         document.getElementById("deviceIp").textContent = `IP: ${j.ip || "?"}`;
         const bars = rssiToBars(j.rssi);
@@ -85,8 +90,24 @@
         icon.setAttribute("data-bars", String(bars));
         const rssiVal = (j.rssi != null) ? String(j.rssi) : "?";
         icon.setAttribute("title", `RSSI: ${rssiVal} dBm`);
+
+        const vpnLine = document.getElementById("vpnIp");
+        if (vpnRes.ok) {
+          const vpn = await vpnRes.json();
+          const connected = !!(vpn && vpn.status && vpn.status.connected);
+          if (connected) {
+            const vpnIp = (vpn && vpn.config && vpn.config.local_ip) ? vpn.config.local_ip : "?";
+            vpnLine.textContent = `VPN: ${vpnIp}`;
+            vpnLine.style.display = "";
+          } else {
+            vpnLine.style.display = "none";
+          }
+        } else {
+          vpnLine.style.display = "none";
+        }
       } catch {
         document.getElementById("deviceIp").textContent = "IP: ?";
+        document.getElementById("vpnIp").style.display = "none";
         const icon = document.getElementById("wifiIcon");
         icon.setAttribute("data-bars", "0");
         icon.setAttribute("title", "RSSI: ? dBm");

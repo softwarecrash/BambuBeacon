@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>BambuBeacon VPN</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    .status-line { margin-bottom: 10px; font-weight: 700; color: var(--bb-text); }
+    .status-subline { margin-top: 4px; font-size: 12px; color: var(--bb-text-2); }
+    .inline-row { display: flex; align-items: center; gap: 8px; }
+    .inline-row input { flex: 1; }
+    .key-eye {
+      width: auto;
+      padding: 10px 12px;
+      min-width: 46px;
+      border: 2px solid var(--bb-primary);
+      background: transparent;
+      color: var(--bb-primary);
+      font-size: 14px;
+      border-radius: var(--radius);
+    }
+    .helper-row {
+      margin-top: 8px;
+      display: flex;
+      gap: 8px;
+    }
+    .helper-row .btn { width: auto; flex: 1; padding: 10px 12px; font-size: 14px; }
+    .import-box {
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .enable-toggle-btn {
+      width: 100%;
+      margin-top: 8px;
+      margin-bottom: 10px;
+    }
+    .import-warnings {
+      display: none;
+      margin-top: 8px;
+      padding: 8px 10px;
+      border: 1px solid rgba(201, 135, 135, 0.6);
+      border-radius: 10px;
+      background: rgba(201, 135, 135, 0.12);
+      font-size: 12px;
+      color: var(--bb-text);
+      white-space: pre-line;
+    }
+    .allowed-help {
+      margin-top: 6px;
+      margin-bottom: 6px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="particleCanvas"></canvas>
+
+  <div id="container">
+    <div id="header">
+      <a href="/"><img id="logo" src="/logo.svg" alt="Logo" /></a>
+      <h1>VPN</h1>
+    </div>
+
+    <form id="vpnForm" class="panel">
+      <div class="panel-title">WireGuard VPN</div>
+      <div class="status-line" id="vpnStatusLine">VPN: DISCONNECTED</div>
+      <div class="status-subline" id="vpnHandshakeLine">Last handshake: n/a</div>
+
+      <button type="button" class="btn btn-outline enable-toggle-btn" id="enabledToggleBtn" aria-pressed="false">Disabled</button>
+
+      <div class="detailSplitter">Import WireGuard config (.conf)</div>
+      <div class="import-box">
+        <input id="wgImportFile" type="file" accept=".conf,.txt" style="display:none;" />
+        <div class="button-stack actions" style="margin-top:8px;">
+          <button type="button" class="btn btn-outline" id="importBtn">Import config</button>
+        </div>
+        <div id="importWarnings" class="import-warnings"></div>
+      </div>
+
+      <label for="local_ip">Local interface IP address</label>
+      <input id="local_ip" type="text" placeholder="10.0.0.2" />
+
+      <label for="local_mask">Local subnet mask</label>
+      <input id="local_mask" type="text" placeholder="255.255.255.0" />
+
+      <label for="local_port">Local port</label>
+      <input id="local_port" type="number" min="1" max="65535" step="1" placeholder="33333" />
+
+      <label for="local_gateway">Local gateway</label>
+      <input id="local_gateway" type="text" placeholder="0.0.0.0" />
+
+      <label for="private_key">Private key of local interface</label>
+      <div class="inline-row">
+        <input id="private_key" type="password" autocomplete="new-password" placeholder="" />
+        <button type="button" class="key-eye" id="privateEyeBtn" aria-label="Toggle private key visibility">Show</button>
+      </div>
+
+      <label for="endpoint_host">Endpoint peer address (domain name or IP address)</label>
+      <input id="endpoint_host" type="text" placeholder="vpn.example.com" />
+
+      <label for="endpoint_public_key">Public key of endpoint peer</label>
+      <input id="endpoint_public_key" type="text" placeholder="" />
+
+      <label for="endpoint_port">Endpoint peer port</label>
+      <input id="endpoint_port" type="number" min="1" max="65535" step="1" placeholder="51820" />
+
+      <label for="allowed_ip">Allowed IP addresses</label>
+      <input id="allowed_ip" type="text" placeholder="192.168.50.0" />
+      <div class="inline-info allowed-help" title="Allowed IPs define which remote networks are reachable through the tunnel (printer network only, e.g. 192.168.178.0/24).">
+        Allowed IPs define which remote networks are reachable through the tunnel
+        (printer network only, e.g. 192.168.178.0/24).
+      </div>
+
+      <label for="allowed_mask">Allowed mask</label>
+      <input id="allowed_mask" type="text" placeholder="255.255.255.0" />
+
+      <label for="preshared_key">Preshared key</label>
+      <div class="inline-row">
+        <input id="preshared_key" type="password" autocomplete="new-password" placeholder="" />
+        <button type="button" class="key-eye" id="presharedEyeBtn" aria-label="Toggle preshared key visibility">Show</button>
+      </div>
+
+      <div class="helper-row">
+        <button type="button" class="btn btn-outline" id="loadRealKeysBtn">Load Real Keys</button>
+      </div>
+
+      <div class="button-stack actions">
+        <button type="submit" class="btn">Save</button>
+        <button type="button" class="btn btn-outline" onclick="location.href='/'">Back</button>
+      </div>
+
+    </form>
+  </div>
+
+  <div id="toast"><span id="toast-icon">i</span><span id="toast-msg">Placeholder</span></div>
+  <div class="page-footer" id="fwFooter">Firmware v? by SoftWareCrash</div>
+
+  <script src="/backgroundCanvas.js"></script>
+  <script>
+    let statusPoll = null;
+    let enabledState = false;
+
+    function alertToast(type, message) {
+      const toast = document.getElementById("toast");
+      const icon = document.getElementById("toast-icon");
+      const msg = document.getElementById("toast-msg");
+
+      let iconChar = "i";
+      let borderColor = "rgba(255,255,255,0.18)";
+      const css = getComputedStyle(document.documentElement);
+      switch (String(type).toLowerCase()) {
+        case "success": iconChar = "ok"; borderColor = css.getPropertyValue("--bb-primary"); break;
+        case "error": iconChar = "!"; borderColor = css.getPropertyValue("--bb-warning"); break;
+        case "warning": iconChar = "!"; borderColor = css.getPropertyValue("--bb-warning"); break;
+        default: break;
+      }
+
+      toast.style.borderLeftColor = (borderColor || "").trim() || "#00E5FF";
+      icon.textContent = iconChar;
+      msg.textContent = message;
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 3000);
+    }
+
+    function fillForm(cfg) {
+      if (!cfg) return;
+      enabledState = !!cfg.enabled;
+      renderEnabledToggle();
+      document.getElementById("local_ip").value = cfg.local_ip || "";
+      document.getElementById("local_mask").value = cfg.local_mask || "";
+      document.getElementById("local_port").value = cfg.local_port || "";
+      document.getElementById("local_gateway").value = cfg.local_gateway || "";
+      document.getElementById("private_key").value = cfg.private_key || "";
+      document.getElementById("endpoint_host").value = cfg.endpoint_host || "";
+      document.getElementById("endpoint_public_key").value = cfg.endpoint_public_key || "";
+      document.getElementById("endpoint_port").value = cfg.endpoint_port || "";
+      document.getElementById("allowed_ip").value = cfg.allowed_ip || "";
+      document.getElementById("allowed_mask").value = cfg.allowed_mask || "";
+      document.getElementById("preshared_key").value = cfg.preshared_key || "";
+    }
+
+    function renderEnabledToggle() {
+      const btn = document.getElementById("enabledToggleBtn");
+      btn.textContent = enabledState ? "Enabled" : "Disabled";
+      btn.setAttribute("aria-pressed", enabledState ? "true" : "false");
+      if (enabledState) {
+        btn.classList.remove("btn-outline");
+      } else {
+        btn.classList.add("btn-outline");
+      }
+    }
+
+    function updateStatus(status) {
+      const text = (status && status.statusText) ? String(status.statusText) : "DISCONNECTED";
+      document.getElementById("vpnStatusLine").textContent = "VPN: " + text;
+
+      const hs = status && status.lastHandshakeSeconds;
+      if (typeof hs === "number" && hs !== 0 && hs !== 4294967295) {
+        document.getElementById("vpnHandshakeLine").textContent = "Last handshake: " + hs + "s";
+      } else {
+        document.getElementById("vpnHandshakeLine").textContent = "Last handshake: n/a";
+      }
+    }
+
+    function renderImportWarnings(warnings) {
+      const box = document.getElementById("importWarnings");
+      const list = Array.isArray(warnings) ? warnings : [];
+
+      if (!list.length) {
+        box.style.display = "none";
+        box.textContent = "";
+        return;
+      }
+
+      box.style.display = "block";
+      box.textContent = list.map((w, i) => (i + 1) + ". " + w).join("\n");
+    }
+
+    async function fetchVpn(reveal) {
+      const url = reveal ? "/api/vpn?reveal=1" : "/api/vpn";
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error("Request failed");
+      return res.json();
+    }
+
+    async function loadForm(revealKeys) {
+      try {
+        const data = await fetchVpn(!!revealKeys);
+        fillForm(data.config || {});
+        updateStatus(data.status || {});
+      } catch {
+        updateStatus({ statusText: "DISCONNECTED (API unavailable)" });
+      }
+    }
+
+    async function pollStatus() {
+      try {
+        const data = await fetchVpn(false);
+        updateStatus(data.status || {});
+      } catch {
+      }
+    }
+
+    function gatherPayload() {
+      return {
+        enabled: enabledState,
+        local_ip: document.getElementById("local_ip").value.trim(),
+        local_mask: document.getElementById("local_mask").value.trim(),
+        local_port: Number(document.getElementById("local_port").value || 0),
+        local_gateway: document.getElementById("local_gateway").value.trim(),
+        private_key: document.getElementById("private_key").value,
+        endpoint_host: document.getElementById("endpoint_host").value.trim(),
+        endpoint_public_key: document.getElementById("endpoint_public_key").value.trim(),
+        endpoint_port: Number(document.getElementById("endpoint_port").value || 0),
+        allowed_ip: document.getElementById("allowed_ip").value.trim(),
+        allowed_mask: document.getElementById("allowed_mask").value.trim(),
+        preshared_key: document.getElementById("preshared_key").value
+      };
+    }
+
+    async function saveVpn(payload) {
+      const res = await fetch("/api/vpn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.reason || ("HTTP " + res.status));
+      }
+      return data;
+    }
+
+    async function importWireGuardConfig(file) {
+      if (!file) {
+        throw new Error("Please select a .conf file first.");
+      }
+
+      const body = new FormData();
+      body.append("wgconf", file, file.name);
+
+      const res = await fetch("/api/vpn/import", {
+        method: "POST",
+        body
+      });
+
+      const raw = await res.text();
+      let data = {};
+      try {
+        data = JSON.parse(raw);
+      } catch {
+      }
+      if (!res.ok || !data.ok) {
+        const fallback = String(raw || "").trim();
+        throw new Error(data.error || (fallback ? fallback.slice(0, 220) : ("HTTP " + res.status)));
+      }
+
+      renderImportWarnings(data.warnings || []);
+      fillForm(data.config || {});
+      const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+      const fullTunnelIgnored = warnings.includes("Full-tunnel entry 0.0.0.0/0 was ignored to keep local access safe.");
+      alertToast("success", "Config imported into form. Click Save to store.");
+      if (fullTunnelIgnored) {
+        setTimeout(() => {
+          alertToast("warning", "Full-tunnel entry 0.0.0.0/0 was ignored to keep local access safe.");
+        }, 3200);
+      }
+      return data;
+    }
+
+    function toggleKeyVisibility(inputId, btnId) {
+      const input = document.getElementById(inputId);
+      const btn = document.getElementById(btnId);
+      const shown = input.type === "text";
+      input.type = shown ? "password" : "text";
+      btn.textContent = shown ? "Show" : "Hide";
+    }
+
+    document.getElementById("privateEyeBtn").addEventListener("click", () => {
+      toggleKeyVisibility("private_key", "privateEyeBtn");
+    });
+
+    document.getElementById("presharedEyeBtn").addEventListener("click", () => {
+      toggleKeyVisibility("preshared_key", "presharedEyeBtn");
+    });
+
+    document.getElementById("enabledToggleBtn").addEventListener("click", () => {
+      enabledState = !enabledState;
+      renderEnabledToggle();
+    });
+
+    document.getElementById("loadRealKeysBtn").addEventListener("click", async () => {
+      try {
+        await loadForm(true);
+        alertToast("success", "Real keys loaded for editing.");
+      } catch {
+        alertToast("error", "Failed to load real keys.");
+      }
+    });
+
+    document.getElementById("vpnForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const payload = gatherPayload();
+        const data = await saveVpn(payload);
+        updateStatus(data.status || {});
+        alertToast("success", "VPN settings saved.");
+        await loadForm(false);
+      } catch (err) {
+        alertToast("error", "Save failed: " + (err && err.message ? err.message : "unknown"));
+      }
+    });
+
+    document.getElementById("importBtn").addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const fileInput = document.getElementById("wgImportFile");
+      fileInput.value = "";
+      fileInput.click();
+    });
+
+    document.getElementById("wgImportFile").addEventListener("change", async (event) => {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      try {
+        await importWireGuardConfig(file);
+      } catch (err) {
+        renderImportWarnings([]);
+        alertToast("error", "Import failed: " + (err && err.message ? err.message : "unknown"));
+      } finally {
+        event.target.value = "";
+      }
+    });
+
+    (async function init() {
+      await loadForm(false);
+      renderEnabledToggle();
+      renderImportWarnings([]);
+      pollStatus();
+      statusPoll = setInterval(pollStatus, 2000);
+    })();
+  </script>
+  <script src="/footer.js"></script>
+</body>
+</html>

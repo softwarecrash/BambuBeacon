@@ -27,6 +27,21 @@
   X(STRING, "network",   "webUIuser",          webUIuser,       "",          0,    0) \
   X(STRING, "network",   "webUIPass",          webUIPass,       "",          0,    0) \
   \
+  /* ---- VPN section ---- */ \
+  X(BOOL,   "vpn",       "enabled",            vpnEnabled,      false,       0,     0) \
+  X(STRING, "vpn",       "local_ip",           vpnLocalIp,      "",          0,     0) \
+  X(STRING, "vpn",       "local_mask",         vpnLocalMask,    "255.255.255.0", 0, 0) \
+  X(UINT16, "vpn",       "local_port",         vpnLocalPort,    33333,       1, 65535) \
+  X(STRING, "vpn",       "local_gateway",      vpnLocalGateway, "0.0.0.0",   0,     0) \
+  X(STRING, "vpn",       "private_key",        vpnPrivateKey,   "",          0,     0) \
+  X(STRING, "vpn",       "endpoint_host",      vpnEndpointHost, "",          0,     0) \
+  X(STRING, "vpn",       "endpoint_pubkey",    vpnEndpointPubKey, "",        0,     0) \
+  X(UINT16, "vpn",       "endpoint_port",      vpnEndpointPort, 0,           0, 65535) \
+  X(STRING, "vpn",       "allowed_ip",         vpnAllowedIp,    "0.0.0.0",   0,     0) \
+  X(STRING, "vpn",       "allowed_mask",       vpnAllowedMask,  "0.0.0.0",   0,     0) \
+  X(BOOL,   "vpn",       "make_default",       vpnMakeDefault,  false,       0,     0) \
+  X(STRING, "vpn",       "preshared_key",      vpnPresharedKey, "",          0,     0) \
+  \
   /* ---- Device section ---- */ \
   X(STRING, "device",   "printerUSN",         printerUSN,       "",          0,     0) \
   X(STRING, "device",   "printerIP",          printerIP,        "",          0,     0) \
