@@ -3,8 +3,100 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>BambuBeacon – Network Setup</title>
+  <title>BambuBeacon - Network Setup</title>
   <link rel="stylesheet" href="/style.css" />
+  <style>
+    #advancedToggleBtn { margin-top: 8px; }
+    #advancedNetworkFields { display: none; }
+    .network-panel-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .network-refresh-btn {
+      width: 36px;
+      min-width: 36px;
+      padding: 6px 0;
+      border-radius: 10px;
+      border: 2px solid var(--bb-primary);
+      background: transparent;
+      color: var(--bb-primary);
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .network-refresh-btn:hover { background: rgba(95, 175, 125, 0.10); }
+    .network-refresh-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .network-refresh-btn.spinning { animation: spin 0.9s linear infinite; }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .network-card {
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .network-card:hover {
+      border-color: rgba(95, 175, 125, 0.25);
+      background: rgba(95, 175, 125, 0.06);
+    }
+    .network-card.selected {
+      border-color: var(--bb-primary);
+      background: rgba(95, 175, 125, 0.14);
+    }
+    .network-toggle {
+      display: grid;
+      grid-template-columns: 22px 1fr;
+      grid-template-rows: auto auto;
+      column-gap: 10px;
+      row-gap: 2px;
+      padding: 10px;
+      cursor: pointer;
+    }
+    .network-toggle:focus {
+      outline: 2px solid var(--bb-primary);
+      outline-offset: -2px;
+    }
+    .network-expand {
+      display: none;
+      border-top: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(0, 0, 0, 0.08);
+      padding: 10px;
+    }
+    .network-expand.open { display: block; }
+    .network-expand label {
+      margin: 0 0 6px;
+      font-size: 12px;
+      color: var(--bb-text-2);
+      font-weight: 650;
+    }
+    .network-expand-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .network-expand-row input {
+      flex: 1;
+      margin: 0;
+    }
+    .network-expand-row .btn {
+      width: auto;
+      min-width: 128px;
+      padding: 10px 12px;
+      font-size: 14px;
+      margin: 0;
+    }
+    .wifi-lock-icon {
+      width: 12px;
+      height: 12px;
+      vertical-align: -2px;
+      display: inline-block;
+    }
+    #selectedNetworkHint { margin-top: 8px; }
+  </style>
 </head>
 <body>
   <canvas id="particleCanvas"></canvas>
@@ -16,71 +108,94 @@
     </div>
 
     <div class="panel">
-      <div class="panel-title">Available Networks</div>
+      <div class="panel-title network-panel-title">
+        <span>Available Networks</span>
+        <button type="button" class="network-refresh-btn" id="refreshNetworksBtn" title="Refresh networks" aria-label="Refresh networks">&#x21bb;</button>
+      </div>
       <div id="networks" class="network-list">Loading...</div>
+      <div class="inline-info" id="selectedNetworkHint">Selected network: none</div>
     </div>
 
-    <form id="wifiForm" class="panel">
+    <form id="wifiForm" class="panel" autocomplete="off">
       <div class="panel-title">Wi-Fi Configuration</div>
 
-      <label for="devicename">Device Name</label>
-      <input type="text" id="devicename" autocomplete="off" required />
+      <button type="button" class="btn btn-outline" id="advancedToggleBtn" aria-expanded="false">Advanced Network Settings</button>
 
-      <label for="ssid0">SSID</label>
-      <input type="text" id="ssid0" autocomplete="off" />
-      <input type="hidden" id="bssid0" />
+      <div id="advancedNetworkFields">
+        <label for="devicename">Device Name</label>
+        <input type="text" id="devicename" autocomplete="off" required />
 
-      <label>
-        <input type="checkbox" id="bssidLock" />
-        Lock to selected BSSID (Mesh/Steering off)
-      </label>
+        <label for="ssid0">SSID</label>
+        <input type="text" id="ssid0" autocomplete="off" />
+        <input type="hidden" id="bssid0" />
 
-      <label for="password0">Password</label>
-      <input type="password" id="password0" autocomplete="new-password" />
+        <label>
+          <input type="checkbox" id="bssidLock" />
+          Lock to selected BSSID (Mesh/Steering off)
+        </label>
 
-      <div class="detailSplitter">Fallback</div>
+        <label for="password0">Password</label>
+        <input type="password" id="password0" name="wifi_psk_primary" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" />
 
-      <label for="ssid1">Fallback SSID (optional)</label>
-      <input type="text" id="ssid1" autocomplete="off" />
-      <input type="hidden" id="bssid1" />
+        <div class="detailSplitter">Fallback</div>
 
-      <label for="password1">Password (optional)</label>
-      <input type="password" id="password1" autocomplete="new-password" />
+        <label for="ssid1">Fallback SSID (optional)</label>
+        <input type="text" id="ssid1" autocomplete="off" />
+        <input type="hidden" id="bssid1" />
 
-      <div class="detailSplitter">Static IP (optional)</div>
+        <label for="password1">Password (optional)</label>
+        <input type="password" id="password1" name="wifi_psk_fallback" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" />
 
-      <label for="ip">Static IP</label>
-      <input type="text" id="ip" placeholder="192.168.1.123" />
+        <div class="detailSplitter">Static IP (optional)</div>
 
-      <label for="subnet">Subnet Mask</label>
-      <input type="text" id="subnet" placeholder="255.255.255.0" />
+        <label for="ip">Static IP</label>
+        <input type="text" id="ip" placeholder="192.168.1.123" />
 
-      <label for="gateway">Gateway</label>
-      <input type="text" id="gateway" placeholder="192.168.1.1" />
+        <label for="subnet">Subnet Mask</label>
+        <input type="text" id="subnet" placeholder="255.255.255.0" />
 
-      <label for="dns">DNS Server</label>
-      <input type="text" id="dns" placeholder="8.8.8.8" />
+        <label for="gateway">Gateway</label>
+        <input type="text" id="gateway" placeholder="192.168.1.1" />
 
-      <div class="detailSplitter">WebUI Security (optional)</div>
+        <label for="dns">DNS Server</label>
+        <input type="text" id="dns" placeholder="8.8.8.8" />
 
-      <label for="webUser">Username</label>
-      <input type="text" id="webUser" autocomplete="username" />
+        <div class="detailSplitter">WebUI Security (optional)</div>
 
-      <label for="webPass">Password</label>
-      <input type="password" id="webPass" autocomplete="new-password" />
+        <label for="webUser">Username</label>
+        <input type="text" id="webUser" autocomplete="username" />
+
+        <label for="webPass">Password</label>
+        <input type="password" id="webPass" autocomplete="new-password" />
+
+        <div class="button-stack actions">
+          <button type="submit" class="btn">Save</button>
+        </div>
+      </div>
 
       <div class="button-stack actions">
-        <button type="submit" class="btn">Save</button>
         <button type="button" class="btn btn-outline" onclick="location.href='/'">Back</button>
       </div>
     </form>
   </div>
 
-  <div id="toast"><span id="toast-icon">ℹ️</span><span id="toast-msg">Placeholder</span></div>
+  <div id="toast"><span id="toast-icon">i</span><span id="toast-msg">Placeholder</span></div>
   <div class="page-footer" id="fwFooter">Firmware v? by SoftWareCrash</div>
 
   <script src="/backgroundCanvas.js"></script>
   <script>
+    let selectedSsid = "";
+    let selectedBssid = "";
+    let networkLoadInFlight = false;
+    let networkWarmupPolls = 0;
+    let networkErrorToastShown = false;
+    let hasRenderedNetworks = false;
+    let latestNetworks = [];
+    let lastNetworkSignature = "";
+    let expandedNetworkKey = "";
+    let wifiSubmitInFlight = false;
+    const passwordDraftByKey = {};
+
     function getSignalSVG(rssi) {
       let level = 0;
       if (rssi >= -50) level = 4;
@@ -103,22 +218,170 @@
       const percent = Math.max(0, Math.min(100, 2 * (rssi + 100)));
       return `${percent}%`;
     }
-    function getLockIcon(enc) { return enc ? "🔒" : "🔓"; }
+
+    function getLockIcon(enc) {
+      if (!enc) {
+        return '<svg class="wifi-lock-icon" viewBox="0 0 24 24" aria-label="Open network" role="img"><path fill="currentColor" d="M18 8h-1V6a5 5 0 0 0-9.9-1H9a3 3 0 0 1 6 1v2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2Z"/></svg>';
+      }
+      return '<svg class="wifi-lock-icon" viewBox="0 0 24 24" aria-label="Secured network" role="img"><path fill="currentColor" d="M17 9h-1V7a4 4 0 1 0-8 0v2H7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2Zm-7-2a2 2 0 1 1 4 0v2h-4V7Z"/></svg>';
+    }
+
+    function getNetworkKey(ssid, bssid) {
+      if (bssid) return "bssid:" + bssid;
+      return "ssid:" + (ssid || "");
+    }
+
+    function updateSelectedNetworkHint() {
+      const hint = document.getElementById("selectedNetworkHint");
+      if (!selectedSsid && !selectedBssid) {
+        hint.textContent = "Selected network: none";
+        return;
+      }
+      const name = selectedSsid || "(hidden)";
+      hint.textContent = selectedBssid
+        ? ("Selected network: " + name + " - " + selectedBssid)
+        : ("Selected network: " + name);
+    }
+
+    function setAdvancedOpen(open) {
+      const wrap = document.getElementById("advancedNetworkFields");
+      const btn = document.getElementById("advancedToggleBtn");
+      const isOpen = !!open;
+      wrap.style.display = isOpen ? "block" : "none";
+      btn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+      btn.textContent = isOpen ? "Hide Advanced Network Settings" : "Advanced Network Settings";
+    }
+
+    function selectNetwork(net) {
+      selectedSsid = net.ssid || "";
+      selectedBssid = net.bssid || "";
+      document.getElementById("ssid0").value = selectedSsid;
+      document.getElementById("bssid0").value = selectedBssid;
+      const key = getNetworkKey(selectedSsid, selectedBssid);
+      const draft = Object.prototype.hasOwnProperty.call(passwordDraftByKey, key)
+        ? passwordDraftByKey[key]
+        : "";
+      document.getElementById("password0").value = draft;
+      updateSelectedNetworkHint();
+    }
+
+    function computeNetworkSignature(networks) {
+      return networks.map((net) => getNetworkKey(net.ssid || "", net.bssid || "")).join("|");
+    }
+
+    function renderNetworks(networks) {
+      const container = document.getElementById("networks");
+      const selectedKey = getNetworkKey(selectedSsid, selectedBssid);
+      container.innerHTML = "";
+
+      networks.forEach((net) => {
+        const bssid = net.bssid || "";
+        const ssid = net.ssid || "";
+        const key = getNetworkKey(ssid, bssid);
+
+        const card = document.createElement("div");
+        card.className = "network-card" + (key === selectedKey ? " selected" : "");
+
+        const row = document.createElement("div");
+        row.className = "network-toggle";
+        row.setAttribute("role", "button");
+        row.setAttribute("tabindex", "0");
+        row.innerHTML = `
+          <span class="signal-wrap">${getSignalSVG(net.rssi)}</span>
+          <span class="ssid">${ssid || "(hidden)"}</span>
+          <span class="meta">${getSignalPercent(net.rssi)} - ${bssid} - ${getLockIcon(net.enc)}</span>
+        `;
+
+        const expand = document.createElement("div");
+        expand.className = "network-expand" + (expandedNetworkKey === key ? " open" : "");
+        expand.innerHTML = `
+          <label>Wi-Fi password for ${ssid || "(hidden)"}</label>
+          <div class="network-expand-row">
+            <input type="password" name="wifi_psk_inline_${key.replace(/[^a-zA-Z0-9_]/g, "_")}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" placeholder="Enter password" />
+            <button type="button" class="btn btn-outline">Connect</button>
+          </div>
+        `;
+
+        const passInput = expand.querySelector("input");
+        const useBtn = expand.querySelector("button");
+        const existingDraft = Object.prototype.hasOwnProperty.call(passwordDraftByKey, key)
+          ? passwordDraftByKey[key]
+          : (key === selectedKey ? (document.getElementById("password0").value || "") : "");
+        passInput.value = existingDraft;
+
+        row.addEventListener("click", () => {
+          selectNetwork({ ssid, bssid });
+          expandedNetworkKey = (expandedNetworkKey === key) ? "" : key;
+          renderNetworks(latestNetworks);
+          if (expandedNetworkKey === key) {
+            setTimeout(() => {
+              const liveInput = container.querySelector(".network-expand.open input");
+              if (liveInput) {
+                liveInput.focus();
+                liveInput.select();
+              }
+            }, 0);
+          }
+        });
+        row.addEventListener("keydown", (ev) => {
+          if (ev.key === "Enter" || ev.key === " ") {
+            ev.preventDefault();
+            row.click();
+          }
+        });
+
+        passInput.addEventListener("input", () => {
+          passwordDraftByKey[key] = passInput.value;
+          if (key === getNetworkKey(selectedSsid, selectedBssid)) {
+            document.getElementById("password0").value = passInput.value;
+          }
+        });
+
+        useBtn.addEventListener("click", () => {
+          selectNetwork({ ssid, bssid });
+          const pw = passInput.value || "";
+          passwordDraftByKey[key] = pw;
+          document.getElementById("password0").value = pw;
+          if (net.enc && !pw.length) {
+            alertToast("warning", "Enter password before connecting.");
+            passInput.focus();
+            return;
+          }
+          submitWifiConfig("connect");
+        });
+
+        card.appendChild(row);
+        card.appendChild(expand);
+        container.appendChild(card);
+      });
+
+      hasRenderedNetworks = networks.length > 0;
+    }
 
     function alertToast(type, message) {
       const toast = document.getElementById("toast");
       const icon = document.getElementById("toast-icon");
-      const msg  = document.getElementById("toast-msg");
+      const msg = document.getElementById("toast-msg");
 
-      let iconChar = "ℹ️";
+      let iconChar = "i";
       let borderColor = "rgba(255,255,255,0.18)";
       const css = getComputedStyle(document.documentElement);
 
       switch (String(type).toLowerCase()) {
-        case "success": iconChar="✅"; borderColor = css.getPropertyValue("--bb-primary"); break;
-        case "error":   iconChar="❌"; borderColor = css.getPropertyValue("--bb-warning"); break;
-        case "warning": iconChar="⚠️"; borderColor = css.getPropertyValue("--bb-highlight"); break;
-        default:        iconChar="ℹ️";
+        case "success":
+          iconChar = "ok";
+          borderColor = css.getPropertyValue("--bb-primary");
+          break;
+        case "error":
+          iconChar = "!";
+          borderColor = css.getPropertyValue("--bb-warning");
+          break;
+        case "warning":
+          iconChar = "!";
+          borderColor = css.getPropertyValue("--bb-highlight");
+          break;
+        default:
+          iconChar = "i";
       }
 
       toast.style.borderLeftColor = (borderColor || "").trim() || "#00E5FF";
@@ -128,53 +391,75 @@
       setTimeout(() => toast.classList.remove("show"), 3000);
     }
 
-    async function loadNetworks() {
+    async function loadNetworks(background = false, force = false) {
       const container = document.getElementById("networks");
-      try {
-        container.textContent = "Loading...";
-        const res = await fetch("/netlist");
-        const data = await res.json();
-        container.innerHTML = "";
+      if (networkLoadInFlight) return;
+      networkLoadInFlight = true;
 
-        if (!data.networks || !data.networks.length) {
-          container.innerHTML = '<div class="network empty">No networks found</div>';
+      try {
+        if (!background && !hasRenderedNetworks) {
+          container.textContent = "Scanning networks...";
+        }
+
+        const fetchOnce = async (useForce) => {
+          const url = useForce ? "/netlist?force=1" : "/netlist";
+          const res = await fetch(url, { cache: "no-store" });
+          const data = await res.json();
+          return Array.isArray(data.networks) ? data.networks : [];
+        };
+
+        let networks = await fetchOnce(force);
+        if (force && !networks.length) {
+          for (let i = 0; i < 8; i++) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            networks = await fetchOnce(false);
+            if (networks.length) break;
+          }
+        }
+
+        if (!networks.length) {
+          networkWarmupPolls++;
+          if (!hasRenderedNetworks) {
+            if (networkWarmupPolls <= 3) {
+              container.innerHTML = '<div class="network empty">Scanning networks...</div>';
+            } else {
+              container.innerHTML = '<div class="network empty">No networks found</div>';
+            }
+          }
           return;
         }
 
-        data.networks.forEach(net => {
-          const bssid = net.bssid || "";
-          const row = document.createElement("button");
-          row.type = "button";
-          row.className = "network";
-          row.innerHTML = `
-            <span class="signal-wrap">${getSignalSVG(net.rssi)}</span>
-            <span class="ssid">${net.ssid || "(hidden)"}</span>
-            <span class="meta">${getSignalPercent(net.rssi)} · ${bssid} · ${getLockIcon(net.enc)}</span>
-          `;
-          row.addEventListener("click", () => {
-            document.getElementById("ssid0").value = net.ssid || "";
-            document.getElementById("bssid0").value = bssid;
-          });
-          container.appendChild(row);
-        });
+        networkWarmupPolls = 0;
+        networkErrorToastShown = false;
+        latestNetworks = networks;
+        const signature = computeNetworkSignature(networks);
+        if (!hasRenderedNetworks || signature !== lastNetworkSignature) {
+          renderNetworks(networks);
+          lastNetworkSignature = signature;
+        }
       } catch (err) {
-        container.innerHTML = '<div class="network empty">Failed to load networks</div>';
-        console.error(err);
-        alertToast("error", "Failed getting network scan.");
+        if (!background && !hasRenderedNetworks) {
+          container.innerHTML = '<div class="network empty">Failed to load networks</div>';
+        }
+        if (!networkErrorToastShown) {
+          networkErrorToastShown = true;
+          alertToast("error", "Failed getting network scan.");
+        }
+      } finally {
+        networkLoadInFlight = false;
       }
     }
 
     async function loadConfig() {
       try {
-        const res = await fetch("/netconf.json");
+        const res = await fetch("/netconf.json", { cache: "no-store" });
         const c = await res.json();
 
         document.getElementById("devicename").value = c.deviceName || "BambuBeacon";
         document.getElementById("ssid0").value = c.ssid0 || "";
         document.getElementById("password0").value = c.pass0 || "";
         document.getElementById("bssid0").value = c.bssid0 || "";
-        const lock = (c.bssidLock === true);
-        document.getElementById("bssidLock").checked = lock;
+        document.getElementById("bssidLock").checked = (c.bssidLock === true);
 
         document.getElementById("ssid1").value = c.ssid1 || "";
         document.getElementById("password1").value = c.pass1 || "";
@@ -187,27 +472,70 @@
 
         document.getElementById("webUser").value = c.webUser || "";
         document.getElementById("webPass").value = c.webPass || "";
+
+        selectedSsid = c.ssid0 || "";
+        selectedBssid = c.bssid0 || "";
+        updateSelectedNetworkHint();
+        if (hasRenderedNetworks) {
+          renderNetworks(latestNetworks);
+        }
       } catch {}
     }
 
-    document.getElementById("wifiForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
+    document.getElementById("advancedToggleBtn").addEventListener("click", () => {
+      const open = document.getElementById("advancedNetworkFields").style.display !== "none";
+      setAdvancedOpen(!open);
+    });
+
+    document.getElementById("ssid0").addEventListener("input", () => {
+      selectedSsid = document.getElementById("ssid0").value || "";
+      selectedBssid = "";
+      document.getElementById("bssid0").value = "";
+      document.getElementById("bssidLock").checked = false;
+      expandedNetworkKey = "";
+      updateSelectedNetworkHint();
+      if (hasRenderedNetworks) {
+        renderNetworks(latestNetworks);
+      }
+    });
+
+    document.getElementById("password0").addEventListener("input", () => {
+      const key = getNetworkKey(selectedSsid, selectedBssid);
+      if (!key) return;
+      passwordDraftByKey[key] = document.getElementById("password0").value || "";
+    });
+
+    function buildSubmitBody() {
+      return (
+        `devicename=${encodeURIComponent(document.getElementById("devicename").value)}` +
+        `&ssid0=${encodeURIComponent(document.getElementById("ssid0").value)}` +
+        `&password0=${encodeURIComponent(document.getElementById("password0").value)}` +
+        `&bssid0=${encodeURIComponent(document.getElementById("bssid0").value)}` +
+        `&bssidLock=${encodeURIComponent(document.getElementById("bssidLock").checked ? "1" : "0")}` +
+        `&ssid1=${encodeURIComponent(document.getElementById("ssid1").value)}` +
+        `&password1=${encodeURIComponent(document.getElementById("password1").value)}` +
+        `&bssid1=${encodeURIComponent(document.getElementById("bssid1").value)}` +
+        `&ip=${encodeURIComponent(document.getElementById("ip").value)}` +
+        `&subnet=${encodeURIComponent(document.getElementById("subnet").value)}` +
+        `&gateway=${encodeURIComponent(document.getElementById("gateway").value)}` +
+        `&dns=${encodeURIComponent(document.getElementById("dns").value)}` +
+        `&webUser=${encodeURIComponent(document.getElementById("webUser").value)}` +
+        `&webPass=${encodeURIComponent(document.getElementById("webPass").value)}`
+      );
+    }
+
+    async function submitWifiConfig(mode) {
+      if (wifiSubmitInFlight) return;
+      wifiSubmitInFlight = true;
+
       try {
-        const body =
-          `devicename=${encodeURIComponent(document.getElementById("devicename").value)}` +
-          `&ssid0=${encodeURIComponent(document.getElementById("ssid0").value)}` +
-          `&password0=${encodeURIComponent(document.getElementById("password0").value)}` +
-          `&bssid0=${encodeURIComponent(document.getElementById("bssid0").value)}` +
-          `&bssidLock=${encodeURIComponent(document.getElementById("bssidLock").checked ? "1" : "0")}` +
-          `&ssid1=${encodeURIComponent(document.getElementById("ssid1").value)}` +
-          `&password1=${encodeURIComponent(document.getElementById("password1").value)}` +
-          `&bssid1=${encodeURIComponent(document.getElementById("bssid1").value)}` +
-          `&ip=${encodeURIComponent(document.getElementById("ip").value)}` +
-          `&subnet=${encodeURIComponent(document.getElementById("subnet").value)}` +
-          `&gateway=${encodeURIComponent(document.getElementById("gateway").value)}` +
-          `&dns=${encodeURIComponent(document.getElementById("dns").value)}` +
-          `&webUser=${encodeURIComponent(document.getElementById("webUser").value)}` +
-          `&webPass=${encodeURIComponent(document.getElementById("webPass").value)}`;
+        const ssid = (document.getElementById("ssid0").value || "").trim();
+        if (mode === "connect" && !ssid.length()) {
+          alertToast("warning", "Select a network first.");
+          return;
+        }
+
+        const body = buildSubmitBody();
 
         const res = await fetch("/submitConfig", {
           method: "POST",
@@ -215,9 +543,14 @@
           body
         });
 
-        if (res.ok) alertToast("success", "Settings saved. Restarting…");
+        if (res.ok) {
+          if (mode === "connect") {
+            alertToast("success", "Connecting... Device is restarting.");
+          } else {
+            alertToast("success", "Settings saved. Restarting...");
+          }
+        }
         else alertToast("error", "Save failed: " + res.status);
-
 
         if (res.ok) {
           const devName = (document.getElementById("devicename").value || "BambuBeacon").trim();
@@ -227,7 +560,7 @@
           const checkUrl = "http://" + host + "/info.json";
 
           const form = document.getElementById("wifiForm");
-          Array.from(form.elements).forEach(el => el.disabled = true);
+          Array.from(form.elements).forEach((el) => { el.disabled = true; });
 
           let tries = 0;
           const maxTries = 60;
@@ -246,11 +579,35 @@
         }
       } catch {
         alertToast("info", "Device is likely restarting.");
+      } finally {
+        wifiSubmitInFlight = false;
+      }
+    }
+
+    document.getElementById("wifiForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      await submitWifiConfig("save");
+    });
+
+    document.getElementById("refreshNetworksBtn").addEventListener("click", async () => {
+      const btn = document.getElementById("refreshNetworksBtn");
+      if (networkLoadInFlight) return;
+      btn.disabled = true;
+      btn.classList.add("spinning");
+      try {
+        await loadNetworks(true, true);
+      } finally {
+        btn.classList.remove("spinning");
+        btn.disabled = false;
       }
     });
 
-    loadConfig();
-    loadNetworks();
+    setAdvancedOpen(false);
+    updateSelectedNetworkHint();
+    (async () => {
+      await loadConfig();
+      await loadNetworks(false, true);
+    })();
   </script>
   <script src="/footer.js"></script>
 </body>

@@ -56,6 +56,17 @@ namespace NetScanCache
       return;
     }
 
+    if (force) {
+      if (sc >= 0) {
+        WiFi.scanDelete();
+      }
+      cacheJson = "";
+      cacheTs = 0;
+      const int rc = WiFi.scanNetworks(true /* async */, true /* show hidden */);
+      scanRunning = (rc == WIFI_SCAN_RUNNING);
+      return;
+    }
+
     // If results available (>=0), let collectIfFinished() harvest them.
     // Otherwise start a new async scan.
     if (sc < 0) {
@@ -1131,7 +1142,8 @@ void WebServerHandler::sendGzChunked(AsyncWebServerRequest* req, const uint8_t* 
 void WebServerHandler::handleNetlist(AsyncWebServerRequest* req) {
   // Never run synchronous WiFi scans inside AsyncTCP handlers.
   // Trigger async scan and return cached results immediately.
-  NetScanCache::startAsyncScanIfNeeded(false);
+  const bool force = req->hasParam("force");
+  NetScanCache::startAsyncScanIfNeeded(force);
   NetScanCache::collectIfFinished();
 
   if (NetScanCache::cacheValid()) {
