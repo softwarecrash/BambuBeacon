@@ -15,6 +15,7 @@ BambuBeacon is an ESP32-based status light for BambuLab printers. It connects to
 - DHCP-friendly printer discovery and tracking
 - WebSerial console for live logs and troubleshooting
 - JSON backup/restore of configuration
+- Wireguard client, Watch your Printer states remote
 - OTA Firmware Updates
 
 ## Parts you need ##
