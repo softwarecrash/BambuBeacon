@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <IPAddress.h>
 #include <lwip/netif.h>
+#include <freertos/FreeRTOS.h>
 
 struct VpnConfig {
   bool enabled = false;
@@ -34,6 +35,9 @@ public:
   const char* statusText() const;
 
 private:
+  bool enterBusy();
+  void leaveBusy();
+
   bool startTunnel();
   void stopTunnel(bool disableManager, const char* reason);
   bool checkPeerUp();
@@ -53,4 +57,6 @@ private:
   struct netif _wgNetifStruct;
   struct netif* _wgNetif = nullptr;
   uint8_t _wireguardPeerIndex = 0xFF;
+  portMUX_TYPE _busyMux = portMUX_INITIALIZER_UNLOCKED;
+  bool _busy = false;
 };

@@ -12,6 +12,9 @@
 #include "GitHubOtaUpdater.h"
 #include "WireGuardVpnManager.h"
 #include "VpnSecretStore.h"
+extern "C" {
+#include "wireguard-platform.h"
+}
 
 LedController ledsCtrl;
 Settings settings;
@@ -58,6 +61,10 @@ void setup() {
   webSerial.setCustomHtmlPage(webserialHtml(), webserialHtmlLen(), "gzip");
 #endif
   webSerial.begin(&server, 115200, 200);
+
+  // Initialize WireGuard platform crypto once in single-thread setup phase.
+  // Avoids late concurrent first-init paths when VPN starts.
+  wireguard_platform_init();
 
   settings.begin();
   (void)VpnSecretStore::privateKeyMeta();

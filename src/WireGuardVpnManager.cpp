@@ -7,7 +7,6 @@
 #include <lwip/netdb.h>
 
 extern "C" {
-#include "wireguard-platform.h"
 #include "wireguard.h"
 #include "wireguardif.h"
 }
@@ -45,7 +44,13 @@ static esp_err_t netifAddAndUpInLwipCtx(void* ctx) {
 
 static esp_err_t shutdownAndRemoveInLwipCtx(void* ctx) {
   auto* netif = static_cast<struct netif*>(ctx);
-  wireguardif_shutdown(netif);
+  if (!netif) {
+    return ESP_OK;
+  }
+  // Library asserts if shutdown is called with netif->state == NULL.
+  if (netif->state != nullptr) {
+    wireguardif_shutdown(netif);
+  }
   netif_remove(netif);
   return ESP_OK;
 }
@@ -82,6 +87,9 @@ WireGuardVpnManager::WireGuardVpnManager() {
 }
 
 bool WireGuardVpnManager::begin(const VpnConfig& cfg) {
+  if (!enterBusy()) {
+    return false;
+  }
   _cfg = cfg;
   _enabled = cfg.enabled;
   _lastPeerCheckMs = 0;
@@ -91,33 +99,46 @@ bool WireGuardVpnManager::begin(const VpnConfig& cfg) {
   stopTunnel(false, _enabled ? "reconfigure" : "disabled");
 
   if (!_enabled) {
+    leaveBusy();
     return true;
   }
 
   String reason;
   if (!validateConfig(&reason)) {
     setStatus("DISCONNECTED", reason.c_str());
+    leaveBusy();
     return false;
   }
 
   if (WiFi.status() != WL_CONNECTED) {
     setStatus("DISCONNECTED", "WiFi disconnected");
+    leaveBusy();
     return true;
   }
 
-  return startTunnel();
+  const bool ok = startTunnel();
+  leaveBusy();
+  return ok;
 }
 
 void WireGuardVpnManager::end() {
+  if (!enterBusy()) {
+    return;
+  }
   _enabled = false;
   stopTunnel(true, "disabled");
+  leaveBusy();
 }
 
 void WireGuardVpnManager::update() {
+  if (!enterBusy()) {
+    return;
+  }
   if (!_enabled) {
     if (_initialized) {
       stopTunnel(false, "disabled");
     }
+    leaveBusy();
     return;
   }
 
@@ -127,6 +148,7 @@ void WireGuardVpnManager::update() {
       stopTunnel(false, "invalid config");
     }
     setStatus("DISCONNECTED", reason.c_str());
+    leaveBusy();
     return;
   }
 
@@ -136,6 +158,7 @@ void WireGuardVpnManager::update() {
     } else {
       setStatus("DISCONNECTED", "WiFi disconnected");
     }
+    leaveBusy();
     return;
   }
 
@@ -147,6 +170,7 @@ void WireGuardVpnManager::update() {
     } else {
       setStatus("CONNECTING", "retry scheduled");
     }
+    leaveBusy();
     return;
   }
 
@@ -161,6 +185,7 @@ void WireGuardVpnManager::update() {
       setStatus("CONNECTING", "awaiting handshake");
     }
   }
+  leaveBusy();
 }
 
 bool WireGuardVpnManager::isEnabled() const {
@@ -248,7 +273,6 @@ bool WireGuardVpnManager::startTunnel() {
     return false;
   }
 
-  wireguard_platform_init();
   _wireguardPeerIndex = WIREGUARDIF_INVALID_INDEX;
   if (wireguardif_add_peer(_wgNetif, &peer, &_wireguardPeerIndex) != ERR_OK ||
       _wireguardPeerIndex == WIREGUARDIF_INVALID_INDEX) {
@@ -277,7 +301,7 @@ bool WireGuardVpnManager::startTunnel() {
 }
 
 void WireGuardVpnManager::stopTunnel(bool disableManager, const char* reason) {
-  if (_wgNetif && _wireguardPeerIndex != WIREGUARDIF_INVALID_INDEX) {
+  if (_wgNetif && _wgNetif->state != nullptr && _wireguardPeerIndex != WIREGUARDIF_INVALID_INDEX) {
     wireguardif_disconnect(_wgNetif, _wireguardPeerIndex);
     wireguardif_remove_peer(_wgNetif, _wireguardPeerIndex);
   }
@@ -297,6 +321,23 @@ void WireGuardVpnManager::stopTunnel(bool disableManager, const char* reason) {
     _enabled = false;
   }
   setStatus("DISCONNECTED", reason);
+}
+
+bool WireGuardVpnManager::enterBusy() {
+  bool entered = false;
+  portENTER_CRITICAL(&_busyMux);
+  if (!_busy) {
+    _busy = true;
+    entered = true;
+  }
+  portEXIT_CRITICAL(&_busyMux);
+  return entered;
+}
+
+void WireGuardVpnManager::leaveBusy() {
+  portENTER_CRITICAL(&_busyMux);
+  _busy = false;
+  portEXIT_CRITICAL(&_busyMux);
 }
 
 bool WireGuardVpnManager::checkPeerUp() {
