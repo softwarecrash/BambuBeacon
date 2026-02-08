@@ -100,6 +100,7 @@ private:
   int seenCount_ = 0;
 
   int sessionFound_ = 0;
+  unsigned long mqttGraceUntilMs_ = 0;
 };
 
 #endif

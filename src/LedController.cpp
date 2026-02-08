@@ -417,7 +417,7 @@ void LedController::tickBootTest(uint32_t nowMs) {
 /* ================= Core ================= */
 
 void LedController::render(uint32_t nowMs) {
-  const uint32_t MQTT_STALE_MS = 15000;
+  const uint32_t MQTT_STALE_MS = 30000;
   RenderState& st = _testMode ? _test : _st;
   const bool mqttOk = st.hasMqtt && (_testMode || (uint32_t)(nowMs - st.lastMqttMs) <= MQTT_STALE_MS);
 

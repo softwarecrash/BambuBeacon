@@ -11,6 +11,7 @@ void BBLPrinterDiscovery::begin()
   udpReady_ = false;
   state_ = State::IDLE;
   knownCount_ = 0;
+  mqttGraceUntilMs_ = 0;
   nextRunMs_ = millis() + 1500; // small grace after boot
 }
 
@@ -72,6 +73,24 @@ void BBLPrinterDiscovery::update()
   }
 
   const unsigned long now = millis();
+  const bool mqttConnected = bambu.isConnected();
+
+  // While MQTT is connected we do not run background discovery scans.
+  // Manual WebUI-triggered scans use forceRescan_ and remain allowed.
+  if (mqttConnected) {
+    mqttGraceUntilMs_ = now + 45000UL;
+    if (!forceRescan_) {
+      state_ = State::IDLE;
+      return;
+    }
+  } else {
+    // After transient MQTT drops, delay auto discovery a bit to avoid adding
+    // extra network traffic while MQTT reconnect is in progress.
+    if (!forceRescan_ && mqttGraceUntilMs_ != 0 && (int32_t)(now - mqttGraceUntilMs_) < 0) {
+      state_ = State::IDLE;
+      return;
+    }
+  }
 
   // LISTEN state: keep parsing packets without blocking
   if (state_ == State::LISTEN)

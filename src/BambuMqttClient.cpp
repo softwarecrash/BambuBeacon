@@ -2,9 +2,13 @@
 #include <mbedtls/pem.h>
 #include <mbedtls/x509_crt.h>
 #include <ctype.h>
+#include <errno.h>
 
 namespace {
-constexpr uint32_t kSocketTimeoutMs = 5000;
+constexpr uint32_t kSocketTimeoutMs = 15000;
+constexpr uint32_t kHardResetMinIntervalMs = 30000;
+constexpr uint32_t kTransportErrWindowMs = 20000;
+constexpr uint32_t kReconnectKickIntervalMs = 7000;
 const char* severityToStr(BambuMqttClient::Severity s) {
   switch (s) {
     case BambuMqttClient::Severity::Fatal: return "Fatal";
@@ -200,7 +204,7 @@ bool BambuMqttClient::initClientFromSettings() {
   cfg.client_id = _clientId.c_str();
   cfg.username = kUser;
   cfg.password = _accessCode.c_str();
-  cfg.keepalive = 15;
+  cfg.keepalive = 20;
   cfg.disable_auto_reconnect = false;
   cfg.buffer_size = 4096;
   cfg.user_context = this;
@@ -277,7 +281,24 @@ void BambuMqttClient::loopTick() {
       _settings->save();
       _clearStoredCert = false;
     }
-    fetchCertSync("tls");
+    if (_resetNeedsCertFetch) {
+      _resetNeedsCertFetch = false;
+      fetchCertSync("tls");
+    } else {
+      if (!initClientFromSettings()) {
+        fetchCertSync("tls");
+      }
+    }
+  }
+
+  if (WiFi.status() == WL_CONNECTED && _client && !_connected &&
+      !_pendingClientReset && !_certFetchInProgress) {
+    const uint32_t nowMs = millis();
+    if (_lastReconnectKickMs == 0 ||
+        (uint32_t)(nowMs - _lastReconnectKickMs) >= kReconnectKickIntervalMs) {
+      _lastReconnectKickMs = nowMs;
+      connect();
+    }
   }
 
   if (_certPendingSave && _fetchedCert) {
@@ -368,6 +389,10 @@ esp_err_t BambuMqttClient::handleEvent(esp_mqtt_event_handle_t event) {
     case MQTT_EVENT_CONNECTED:
       _connected = true;
       _subscribed = false;
+      _lastReconnectKickMs = 0;
+      _transportErrWindowStartMs = 0;
+      _transportErrCount = 0;
+      _resetNeedsCertFetch = false;
       webSerial.println("[MQTT] Connected");
       subscribeReportOnce();
       break;
@@ -387,18 +412,51 @@ esp_err_t BambuMqttClient::handleEvent(esp_mqtt_event_handle_t event) {
       break;
     case MQTT_EVENT_ERROR:
       if (event->error_handle) {
+        const int errType = (int)event->error_handle->error_type;
+        const int tlsErr = (int)event->error_handle->esp_tls_last_esp_err;
+        const int stackErr = (int)event->error_handle->esp_tls_stack_err;
+        const int sockErr = (int)event->error_handle->esp_transport_sock_errno;
         webSerial.printf("[MQTT] Error: type=%d tls=%d stack=%d sock=%d\n",
-                         (int)event->error_handle->error_type,
-                         (int)event->error_handle->esp_tls_last_esp_err,
-                         (int)event->error_handle->esp_tls_stack_err,
-                         (int)event->error_handle->esp_transport_sock_errno);
-        if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
+                         errType, tlsErr, stackErr, sockErr);
+        if (errType == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
+          const bool transientSockErr =
+              (sockErr == EAGAIN) || (sockErr == EWOULDBLOCK) ||
+              (sockErr == EINTR) || (sockErr == ETIMEDOUT);
+
+          // Typical transient socket timeout on unstable links: let built-in
+          // reconnect handle it without expensive cert refresh/reset.
+          if (transientSockErr && tlsErr == 0 && stackErr == 0) {
+            break;
+          }
+
+          const uint32_t nowMs = millis();
+          if (_transportErrWindowStartMs == 0 ||
+              (uint32_t)(nowMs - _transportErrWindowStartMs) > kTransportErrWindowMs) {
+            _transportErrWindowStartMs = nowMs;
+            _transportErrCount = 1;
+          } else if (_transportErrCount < 255) {
+            _transportErrCount++;
+          }
+
+          const bool likelyTlsIssue = (tlsErr != 0 || stackErr != 0);
+          const bool tooManyTransportErrors = (_transportErrCount >= 3);
+          const bool hardResetAllowed =
+              (_lastHardResetMs == 0) ||
+              ((uint32_t)(nowMs - _lastHardResetMs) >= kHardResetMinIntervalMs);
+
+          if (!hardResetAllowed) {
+            break;
+          }
+          if (!likelyTlsIssue && !tooManyTransportErrors) {
+            break;
+          }
+
+          _lastHardResetMs = nowMs;
           _pendingClientReset = true;
+          _resetNeedsCertFetch = likelyTlsIssue;
+          _clearStoredCert = false;
           if (!timeIsValid()) {
             ensureTimeSync();
-            _clearStoredCert = false;
-          } else {
-            _clearStoredCert = true;
           }
         }
       }

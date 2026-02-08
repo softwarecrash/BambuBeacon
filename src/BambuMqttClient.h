@@ -310,9 +310,14 @@ private:
   bool _certPendingSave = false;
   bool _pendingClientReset = false;
   bool _clearStoredCert = false;
+  bool _resetNeedsCertFetch = false;
   bool _timeSyncStarted = false;
   bool _timeSyncOk = false;
   uint32_t _lastCertFetchMs = 0;
+  uint32_t _lastHardResetMs = 0;
+  uint32_t _lastReconnectKickMs = 0;
+  uint32_t _transportErrWindowStartMs = 0;
+  uint8_t _transportErrCount = 0;
   char* _fetchedCert = nullptr;
   size_t _fetchedCertLen = 0;
 
